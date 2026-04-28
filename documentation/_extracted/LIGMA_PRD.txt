@@ -1,0 +1,584 @@
+﻿LIGMA
+Let&apos;s Integrate Groups, Manage Anything
+Virtual Collaboration Workspace
+
+Product Requirements Document (PRD)
+Version 1.0  |  DevDay &apos;26 Hackathon  |  Dev &amp; Design Society
+
+1. Document Overview
+Field
+Value
+Document Title
+LIGMA — Product Requirements Document
+Version
+1.0
+Status
+Draft — Hackathon Submission
+Product Name
+LIGMA (Let&apos;s Integrate Groups, Manage Anything)
+Event
+DevDay &apos;26 Hackathon — Dev &amp; Design Society
+Prepared For
+Product Managers, Designers, Developers, QA, Judges
+Constraint
+No paid third-party integrations; Custom WebSocket implementation required
+Deployment Target
+Render (mandatory for judging)
+
+2. Executive Summary &amp; Product Vision
+2.1 Vision Statement
+Product Vision
+LIGMA is a real-time collaborative workspace that eliminates the cognitive cost of context-switching between ideation and execution. Teams brainstorm on a shared infinite canvas; the platform automatically extracts intent and populates a structured task board — transforming a live brainstorm into an actionable project plan with zero copy-paste.
+
+2.2 Problem Statement
+Modern remote teams operate across fragmented toolchains. The typical workflow is:
+Whiteboard tools (Figma, Miro) for ideation and visual thinking
+Task managers (Notion, Linear, Jira) for execution and tracking
+Chat tools (Slack, Teams) for async decision-making
+
+This fragmentation creates a critical gap: ideas captured on a brainstorm canvas are manually re-entered into project trackers. The act of context-switching kills momentum, and action items born during live sessions are routinely lost. No current tool bridges ideation and execution in real time at the moment the idea is born.
+
+2.3 Solution Summary
+LIGMA is intentionally scoped as a purpose-built brainstorming tool — not a Figma clone — that produces structured, actionable output the moment a session ends. The canvas and the task board are a single unified surface, not two separate applications.
+
+2.4 Product Goals
+Enable frictionless real-time multi-user canvas collaboration with conflict-free merging
+Automatically classify canvas node content into structured intents (action item, decision, question, reference) using AI
+Provide per-node role-based access control enforced both client-side and server-side
+Maintain an immutable, append-only event log of every canvas mutation
+Support graceful WebSocket reconnection with missed-event replay
+Deploy successfully on Render for live judging demo
+
+3. Scope &amp; Constraints
+3.1 In Scope
+Infinite canvas with sticky notes, freehand drawing, shapes, and text blocks
+Multi-user real-time simultaneous editing (no page refresh required)
+AI-powered intent classification of canvas node content
+Live Task Board panel populated automatically from AI-extracted action items
+Node-level RBAC with roles: Lead, Contributor, Viewer
+Append-only immutable event log visible in a side panel
+Custom-built WebSocket server (no third-party WebSocket services)
+CRDT or Operational Transformation-based conflict resolution for concurrent edits
+Cursor presence — each user&apos;s cursor visible and labeled on all screens
+Deployment on Render
+Bonus: Presence Heatmap, Time-Travel Replay, AI Summary Export, Presence Zones
+
+3.2 Out of Scope
+Full vector design tools (pen tool, bezier curves, advanced shape manipulation)
+Video/audio conferencing features
+Mobile native applications (iOS/Android)
+Offline-first functionality
+Enterprise SSO or advanced identity management
+Billing, subscription management, or monetization features
+Third-party paid integrations (explicitly prohibited; causes disqualification)
+File attachments or media embedding beyond canvas shapes
+
+3.3 Assumptions
+[ASSUMPTION] Users access LIGMA via a modern desktop browser (Chrome 100+, Firefox 100+, Safari 15+, Edge 100+)
+[ASSUMPTION] A workspace (canvas session) maps 1:1 to a URL-addressable room with a unique room ID
+[ASSUMPTION] Authentication is session-based with user roles assigned per room
+[ASSUMPTION] The AI intent classification model is accessed via the Anthropic API (Claude) — which is a free tier available to participants; if disallowed, a local rule-based fallback classifier is used
+[ASSUMPTION] Render free tier supports WebSocket connections with appropriate timeout configuration
+[ASSUMPTION] Canvas state can be reconstructed entirely by replaying the event log from inception
+[ASSUMPTION] Maximum concurrent users per canvas session is ≤ 50 for the hackathon demo
+
+3.4 Risks &amp; Mitigations
+Risk
+Probability
+Impact
+Mitigation
+CRDT implementation complexity
+High
+High
+Use Yjs CRDT library for text; implement custom delta ops for positions
+WebSocket scaling on Render free tier
+Medium
+High
+Implement connection pooling; fallback to long-polling for degraded mode
+AI classification latency &gt;3s
+Medium
+High
+Run classification asynchronously; show &apos;Analyzing...&apos; tag; retry on timeout
+Event log storage growth
+Low
+Medium
+Paginate event log; archive events older than 24h to cold storage
+RBAC server bypass via raw WebSocket
+Medium
+High
+Validate all mutations server-side before broadcasting; reject unauthorized ops
+Render cold start latency
+High
+Medium
+Keep-alive ping every 10 minutes; pre-warm on demo day
+
+4. Target Users &amp; Personas
+4.1 Primary Personas
+Persona 1 — The Facilitating Lead
+Attribute
+Detail
+Name
+Sarah, Engineering Lead
+Age
+30–45
+Goal
+Run structured brainstorm sessions that produce actionable engineering tasks immediately
+Pain Point
+Spends 30+ minutes after every whiteboard session manually transferring sticky notes to Jira
+Technical Level
+High — comfortable with developer tools
+LIGMA Role
+Lead — creates rooms, locks sensitive nodes, reviews AI-extracted tasks
+
+Persona 2 — The Active Contributor
+Attribute
+Detail
+Name
+Amir, Full-Stack Developer
+Age
+22–35
+Goal
+Add ideas to the canvas rapidly during a live session without losing focus
+Pain Point
+Gets interrupted when needing to switch to a task manager mid-brainstorm
+Technical Level
+High
+LIGMA Role
+Contributor — adds/edits nodes, cannot modify locked nodes
+
+Persona 3 — The Observer/Stakeholder
+Attribute
+Detail
+Name
+Nina, Product Manager
+Age
+28–40
+Goal
+Observe the session in real time and review the structured task output
+Pain Point
+Often misses context when handed a task list without the ideation that produced it
+Technical Level
+Medium
+LIGMA Role
+Viewer — can view everything, comment on locked nodes, cannot edit
+
+4.2 Use Cases
+Use Case ID
+Title
+Primary Actor
+UC-01
+Create a new canvas session (room)
+Lead
+UC-02
+Invite collaborators with specific roles
+Lead
+UC-03
+Add a sticky note to the canvas
+Contributor / Lead
+UC-04
+Draw freehand on the canvas
+Contributor / Lead
+UC-05
+Edit a text node simultaneously with another user
+Contributor
+UC-06
+View AI-classified task in Task Board
+All roles
+UC-07
+Navigate from Task Board entry to source canvas node
+All roles
+UC-08
+Lock a canvas node to Lead-only access
+Lead
+UC-09
+Attempt edit of locked node (blocked)
+Contributor / Viewer
+UC-10
+View event log of all canvas mutations
+All roles
+UC-11
+Reconnect after a dropped connection
+Any user
+UC-12
+View cursor positions of all connected users
+All roles
+UC-13
+Export AI-generated session summary (Bonus)
+Lead
+UC-14
+View time-travel replay of session (Bonus)
+All roles
+UC-15
+View presence heatmap overlay (Bonus)
+All roles
+
+5. Functional Requirements
+5.1 Module 1 — Infinite Canvas
+FR-1.1 Canvas Rendering
+The canvas MUST support an infinite, pannable, zoomable 2D space
+Pan: drag background or two-finger trackpad scroll
+Zoom: pinch gesture, scroll wheel, or zoom toolbar buttons (10% – 500%)
+The current viewport transform (x, y, scale) MUST be preserved per user session locally
+Canvas MUST render smoothly at ≥ 30 FPS during typical usage (≤ 20 nodes active)
+
+FR-1.2 Sticky Notes
+Users MUST be able to create sticky notes by double-clicking the canvas background
+Sticky notes MUST support multi-line text input with auto-resize
+Sticky notes MUST support at least 8 background color choices
+Sticky notes MUST be draggable to any canvas position
+Sticky notes MUST be resizable via a corner/edge handle
+Minimum sticky note size: 120px × 80px canvas units
+Sticky note text MUST support bold, italic, and underline inline formatting
+
+FR-1.3 Freehand Drawing
+Users MUST be able to draw freehand strokes on the canvas using a pen/pencil tool
+Strokes MUST be rendered as SVG paths with configurable stroke color and width (1px–12px)
+Freehand strokes are canvas nodes and MUST be independently addressable
+An eraser tool MUST allow deletion of individual strokes
+
+FR-1.4 Shapes
+Supported shapes: rectangle, ellipse, arrow/connector line, triangle
+Shapes MUST support fill color and border/stroke color selection
+Shapes MUST be resizable and rotatable (rotation in 15° increments with snap; free rotation when holding Shift)
+Arrow/connector MUST support attaching endpoints to other nodes (snaps to node border)
+
+FR-1.5 Text Blocks
+Standalone text blocks (not inside a sticky note) MUST be creatable via toolbar
+Text blocks MUST support font size selection (12pt – 48pt), alignment (left/center/right)
+Text blocks auto-resize horizontally; fixed height set by user
+
+FR-1.6 Node Properties
+Each canvas node (sticky note, shape, text, drawing stroke) is independently addressable with a UUID
+Each node carries: nodeId (UUID), type, position (x,y), dimensions (w,h), createdBy (userId), createdAt (timestamp), role (access control), aiTag (classification)
+Nodes MUST be selectable (single click) and multi-selectable (Shift+click or drag-select rectangle)
+Selected nodes MUST display a visible selection indicator (bounding box with handles)
+Delete key / Backspace MUST delete selected nodes (subject to RBAC)
+Ctrl+Z / Cmd+Z MUST undo the last local operation (client-side undo stack, minimum depth 50)
+
+5.2 Module 2 — Real-Time Multi-User Collaboration
+FR-2.1 Room/Session Management
+A room is created by any user with Lead role; a unique roomId (UUID) is generated
+Room URL format: /room/:roomId — shareable link grants entry
+Room access requires authentication; unauthenticated users are redirected to a join/login page
+Room creator is automatically assigned the Lead role
+Subsequent joiners MUST be assignable a role (Lead, Contributor, Viewer) by the room Lead
+
+FR-2.2 Real-Time Synchronization
+All connected clients MUST receive canvas mutations within a reasonable latency (target: &lt; 200ms on same region)
+Only canvas deltas (node-level changes) are broadcast — NOT full canvas state snapshots
+The server MUST NOT broadcast an event back to the originating client (echo prevention)
+New clients joining an existing room MUST receive a full canvas state snapshot on connect
+
+FR-2.3 Conflict Resolution — CRDT / OT
+When two users simultaneously edit the same text node, the system MUST merge both edits without data loss
+The conflict resolution strategy MUST be documented in the project README
+&apos;Last write wins&apos; is explicitly prohibited for text node concurrent edits
+Position conflicts (two users moving the same node): use timestamped last-position-wins (acceptable for non-text positional data)
+Text content conflicts: implement CRDT (e.g., Yjs Y.Text) or OT with operational composition and inversion
+
+FR-2.4 Cursor Presence
+Each connected user&apos;s cursor MUST be visible to all other participants on the canvas
+Cursors MUST display the user&apos;s display name or initials as a label
+Cursor positions MUST update smoothly (throttled to 50ms intervals to prevent flooding)
+Cursor label color MUST be unique per user (assigned from a predefined palette of ≥ 10 colors)
+When a user disconnects, their cursor MUST disappear from all other clients within 3 seconds
+
+5.3 Module 3 — AI Intent Classification &amp; Task Board
+FR-3.1 Intent Classification
+As a user types in a canvas node, text content MUST be sent to an AI classifier after a 1.5-second debounce
+The classifier MUST assign one of four intent tags: ACTION_ITEM, DECISION, OPEN_QUESTION, REFERENCE
+Classification result MUST appear on the canvas node as a color-coded badge within 3 seconds of typing stopping
+If classification fails or times out, the node MUST display an UNCLASSIFIED badge and retry silently
+Classification is non-blocking — the canvas MUST remain fully interactive during classification requests
+
+FR-3.2 Task Board Integration
+Nodes classified as ACTION_ITEM MUST automatically appear in the Task Board panel
+Task entries in the Task Board MUST display: task text, author name, timestamp, and a canvas link
+Clicking a Task Board entry MUST pan/animate the canvas viewport to center on the originating node
+The Task Board MUST update live for all connected users — no page reload required
+Task entries MUST reflect edits to the originating canvas node in real time
+If a canvas node is deleted, its Task Board entry MUST be marked as &apos;Removed&apos; (not silently deleted — preserve audit trail)
+
+FR-3.3 AI Classification Rules (Rule-based Fallback)
+[ASSUMPTION] If the AI API is unavailable, the following keyword-based fallback rules apply:
+Text starting with &apos;TODO:&apos;, &apos;Action:&apos;, &apos;Assign to&apos;, or ending with &apos;(owner)&apos; → ACTION_ITEM
+Text starting with &apos;Decided:&apos;, &apos;We will&apos;, &apos;Agreed:&apos; → DECISION
+Text containing &apos;?&apos; or starting with &apos;How&apos;, &apos;Why&apos;, &apos;What&apos;, &apos;Should&apos; → OPEN_QUESTION
+All other text → REFERENCE
+
+5.4 Module 4 — Node-Level RBAC
+FR-4.1 Role Definitions
+Role
+Canvas Edit
+Node Lock/Unlock
+Lead
+Full access to all unlocked nodes; can comment on all nodes
+Can lock/unlock any node
+Contributor
+Can create new nodes; can edit unlocked nodes they created or any unlocked node; cannot edit locked nodes
+Cannot lock/unlock nodes
+Viewer
+Read-only access; cannot create or edit any nodes
+Cannot lock/unlock nodes
+
+FR-4.2 Node Locking
+A Lead MUST be able to right-click a node and select &apos;Lock to Lead&apos; from a context menu
+Locked nodes MUST display a visible lock icon/badge on the canvas
+Locked nodes MUST be visually distinct (e.g., reduced opacity handles, lock overlay)
+Attempting to edit a locked node as Contributor/Viewer MUST be blocked in the UI with a tooltip: &apos;This node is locked. Only Leads can edit it.&apos;
+Attempting to edit a locked node via a raw WebSocket message MUST be rejected server-side with an error event
+Live role changes (e.g., a Lead demoting a Contributor to Viewer) MUST take effect without requiring reconnection
+Each canvas node&apos;s ACL is part of the node object in the event log
+
+5.5 Module 5 — Append-Only Event Log
+FR-5.1 Event Capture
+Every canvas mutation MUST generate an immutable event record
+Mutation types to log: NODE_CREATED, NODE_MOVED, NODE_RESIZED, NODE_TEXT_UPDATED, NODE_STYLE_CHANGED, NODE_DELETED, NODE_LOCKED, NODE_UNLOCKED, TASK_CREATED, TASK_REMOVED, ROLE_CHANGED, USER_JOINED, USER_LEFT
+Each event MUST contain: eventId (UUID), eventType, roomId, userId, timestamp (ISO 8601), payload (delta/diff), sequenceNumber (monotonically increasing per room)
+Events MUST be stored in an append-only data structure — existing events MUST NEVER be updated or deleted
+Deleting a canvas node MUST insert a NODE_DELETED event; it MUST NOT remove prior events for that node
+
+FR-5.2 Event Log UI
+A collapsible side panel MUST display the event log for the current session
+Events MUST be displayed in reverse-chronological order (newest first)
+Each log entry MUST show: event type (human-readable), user display name, relative timestamp (&apos;2 min ago&apos;), and a brief summary
+The event log panel MUST update in real time as new events occur
+The panel MUST support scrollable history for the full session
+
+5.6 Module 6 — WebSocket Management
+FR-6.1 Connection
+The system MUST use a custom-built WebSocket server (Node.js ws library or raw http.createServer upgrade) — no third-party WebSocket hosting services
+Clients MUST connect via ws:// (development) or wss:// (production, Render)
+Connection MUST carry authentication token in the URL query parameter or initial handshake message
+The server MUST maintain a connection registry: Map&lt;roomId, Set&lt;ClientConnection&gt;&gt;
+
+FR-6.2 Message Protocol
+All messages MUST be JSON-encoded with envelope format: { type, roomId, payload, timestamp, sequenceNumber }
+Server MUST broadcast delta messages to all clients in a room EXCEPT the originator
+Message types: CANVAS_DELTA, CURSOR_MOVE, USER_JOINED, USER_LEFT, FULL_STATE, REPLAY_EVENTS, ROLE_UPDATE, AI_TAG_UPDATE, ERROR
+
+FR-6.3 Reconnection &amp; Replay
+Clients MUST implement automatic reconnection with exponential backoff (initial: 500ms, max: 30s, jitter ±20%)
+On reconnect, the client MUST send its last known sequenceNumber
+The server MUST respond with all events after that sequenceNumber (missed-event replay)
+If sequenceNumber is 0 or unknown, the server sends a full state snapshot instead
+The client MUST apply replayed events in order before resuming normal operation
+
+5.7 Bonus Features
+FR-7.1 Presence Heatmap
+A toggleable overlay MUST show a heat gradient on the canvas indicating zones with the most edits/activity
+Heat intensity is derived from the count of mutation events per canvas coordinate region
+The heatmap MUST update at the end of each session or on a 30-second rolling window
+
+FR-7.2 Time-Travel Replay
+A timeline scrubber control MUST allow replaying the session from any point in time
+Playback reconstructs canvas state by replaying events up to the selected timestamp
+Playback speeds: 1x, 2x, 5x, 10x
+During replay, editing is disabled; a &apos;Replay Mode&apos; banner is shown
+
+FR-7.3 AI Summary Export
+A &apos;Export Summary&apos; button in the Task Board panel MUST generate a structured brief
+The brief MUST include: Decisions Made, Tasks Assigned (with owners), Open Questions, Reference Notes
+Export formats: copy to clipboard as Markdown, or download as .txt file
+
+FR-7.4 Presence Zones
+Leads MUST be able to draw named rectangular zones on the canvas
+Each zone MUST display an avatar list of users currently active within its bounds
+A user is considered &apos;in&apos; a zone when their cursor is within the zone bounds
+
+6. Non-Functional Requirements
+6.1 Performance
+Canvas renders at ≥ 30 FPS with ≤ 50 concurrent active nodes
+WebSocket delta latency (server-to-client): P95 &lt; 200ms
+AI classification round-trip: P95 &lt; 3 seconds
+Full state snapshot delivery on connect: &lt; 1 second for sessions with ≤ 500 events
+Time-travel replay event reconstruction: &lt; 2 seconds for full session history
+
+6.2 Scalability
+Must support ≥ 10 concurrent WebSocket connections per room without degradation
+Event log must support ≥ 10,000 events per session without UI performance impact (virtualized rendering)
+
+6.3 Security
+All WebSocket messages validated server-side — no client-side trust for RBAC decisions
+Room access tokens are short-lived JWTs (1-hour expiry, renewable)
+Node mutation payloads sanitized server-side (XSS prevention for text content)
+Render deployment uses HTTPS/WSS; all traffic encrypted in transit
+
+6.4 Reliability
+WebSocket server must handle graceful shutdown with CLOSE frames to all clients
+Client must detect connection loss within 10 seconds (heartbeat ping/pong every 5s)
+Reconnection must succeed within 60 seconds under normal network conditions
+
+6.5 Usability
+Core interactions (add note, drag, edit text) must be discoverable without documentation
+Keyboard shortcuts for common operations: N (new note), D (draw), S (select), E (eraser), Delete (remove)
+Colorblind-safe color palette for AI tag badges and role indicators
+
+6.6 Accessibility
+WCAG 2.1 AA compliance for non-canvas UI elements (toolbar, Task Board, Event Log panel)
+Canvas toolbar elements must have aria-label attributes
+Keyboard navigation for Task Board (Tab, Enter, Arrow keys)
+Minimum contrast ratio 4.5:1 for all text elements
+
+7. Business Rules
+BR-01: A room Lead cannot remove their own Lead role unless another Lead exists
+BR-02: Node content classified as ACTION_ITEM automatically creates a Task Board entry — no manual confirmation required
+BR-03: Deleting a canvas node does NOT delete its Task Board entry — the entry is marked &apos;Removed&apos;
+BR-04: The event log is immutable — no event can be edited or deleted through any API endpoint
+BR-05: RBAC enforcement for node mutations is performed server-side before the event is written to the log
+BR-06: A Viewer cannot become a Lead directly — must pass through Contributor role first (security principle of least privilege)
+BR-07: AI classification always runs — it cannot be disabled per node
+BR-08: The canvas sequenceNumber is a server-assigned monotonic integer; clients cannot modify it
+
+8. User Stories &amp; Acceptance Criteria
+8.1 Epic: Canvas Collaboration
+US-01: Real-Time Shape Sync
+User Story
+As a Contributor, I want shapes I draw to appear on my teammates&apos; screens immediately, so that we can collaborate fluidly without refreshing the page.
+
+Acceptance Criteria:
+GIVEN two users are connected to the same room, WHEN User A draws a shape, THEN User B sees the shape within 500ms without a page reload
+GIVEN a shape is drawn, WHEN User B was offline and reconnects, THEN the shape is present in User B&apos;s canvas view
+GIVEN User A moves a shape while User B is also moving it, THEN both users see a consistent final position after convergence
+
+US-02: Conflict-Free Text Editing
+User Story
+As a Lead, I want concurrent text edits to merge intelligently, so that no contributor&apos;s input is silently lost during a collaborative brainstorm.
+
+Acceptance Criteria:
+GIVEN two users type in the same text node simultaneously, WHEN both edits are submitted, THEN both users see identical merged text in the node
+GIVEN the README documents the conflict strategy, WHEN a judge reads it, THEN the strategy (CRDT/OT) is clearly explained
+
+8.2 Epic: AI Task Extraction
+US-03: Automatic Task Creation
+User Story
+As a Project Lead, I want action items written on canvas nodes to automatically appear in the Task Board, so that I don&apos;t have to manually transfer them after the session.
+
+Acceptance Criteria:
+GIVEN a user types &apos;Assign to dev: Fix login bug&apos; in a sticky note, WHEN 1.5 seconds pass, THEN the node is tagged ACTION_ITEM and a Task Board entry appears within 3 seconds
+GIVEN the Task Board entry is created, WHEN a user clicks it, THEN the canvas pans to center on the originating node
+GIVEN the AI API is unavailable, WHEN classification is attempted, THEN the fallback rule-based classifier is used and node is tagged within 1 second
+
+8.3 Epic: Access Control
+US-04: Node Locking
+User Story
+As a Lead, I want to lock certain canvas nodes so contributors cannot accidentally modify critical architecture diagrams.
+
+Acceptance Criteria:
+GIVEN a Lead right-clicks a node, WHEN they select &apos;Lock to Lead&apos;, THEN the node displays a lock icon visible to all users
+GIVEN a locked node exists, WHEN a Contributor attempts to edit it in the UI, THEN the edit is blocked and a tooltip is shown
+GIVEN a locked node exists, WHEN a raw WebSocket edit message targets it from a Contributor session, THEN the server rejects the message with an error event
+GIVEN a Lead unlocks a node, THEN all connected users see the lock icon disappear without reload
+
+8.4 Epic: Event Log
+US-05: Immutable Audit Trail
+User Story
+As a team Lead, I want to review every action taken during a session in the event log, so that I have a full audit trail of the brainstorm.
+
+Acceptance Criteria:
+GIVEN a user deletes a canvas node, WHEN the event log is viewed, THEN a NODE_DELETED event is present AND prior events for that node are still present
+GIVEN the event log panel is open, WHEN a new mutation occurs, THEN the new event appears at the top of the log without a page reload
+GIVEN the entire canvas session state is needed for reconstruction, WHEN events are replayed in sequence order, THEN the resulting canvas state matches the current live state
+
+9. Edge Cases
+EC-01: User disconnects mid-text-edit — partial edit should NOT be broadcast; editor state is buffered locally and sent as a single delta on commit or focus-loss
+EC-02: Network partition lasting &gt;60s — client shows &apos;Disconnected&apos; banner; on reconnect replays all missed events; no data loss if local state was not cleared
+EC-03: Two Leads simultaneously lock the same node — both operations generate separate events; the last-timestamp lock wins; conflict logged but no crash
+EC-04: AI classification returns an unrecognized tag value — client falls back to UNCLASSIFIED; server logs the anomaly
+EC-05: Canvas node text exceeds 10,000 characters — UI enforces character limit with a counter and hard stop at 10,000 chars
+EC-06: User joins a room with &gt;500 existing nodes — full state snapshot is paginated into chunks; canvas renders progressively
+EC-07: Render cold start — first connection may time out; client implements 3 initial connection retries before showing an error state
+EC-08: All Leads leave a room — the system grants Lead role to the longest-active Contributor (or the last connected user) to prevent an orphaned room
+EC-09: Sticky note dragged outside current viewport — canvas auto-pans to follow the drag; node remains accessible
+EC-10: Browser tab backgrounded — WebSocket heartbeat continues; cursor is marked &apos;Away&apos; with a different opacity; edits made in background tab are queued and flushed on focus return
+
+10. KPIs &amp; Success Metrics
+KPI
+Target / Definition
+Multi-user sync latency
+P95 delta broadcast &lt; 200ms
+Conflict resolution correctness
+Both concurrent editors see identical merged state 100% of the time in testing
+AI tag accuracy (demo test)
+≥ 80% correct classification on prepared test nodes
+Task Board auto-population time
+&lt; 3 seconds from typing stop to Task Board entry appearing
+Reconnection success rate
+100% successful reconnection within 60s under simulated network drop
+Judging rubric score
+Target ≥ 80/100 across all categories
+Demo stability
+Zero crashes during the live judging demo session
+README completeness
+Architecture diagram present + CRDT/OT strategy documented
+
+11. Evaluation Rubric Alignment
+The following maps LIGMA features to the official judging rubric:
+Rubric Category
+Max Points
+LIGMA Feature
+Target Score
+Real-Time Collaboration &amp; Conflict Resolution
+25
+WebSocket sync, CRDT/OT merge, cursor presence
+25/25
+Core Feature Implementation
+25
+AI intent extraction, Task Board, Node RBAC
+25/25
+Technical Architecture &amp; Code Quality
+20
+Event sourcing, API design, README + architecture diagram
+20/20
+UI / UX
+15
+Canvas usability, responsive layout, visual consistency
+13/15
+Innovation &amp; Creativity
+15
+One bonus feature (Presence Heatmap or Time-Travel Replay), unique architectural decisions
+12/15
+
+12. Roadmap Considerations
+12.1 Hackathon MVP (In Scope)
+Infinite canvas with all core node types
+Real-time multi-user sync via custom WebSocket server
+CRDT-based conflict resolution for text nodes
+AI intent classification + Task Board
+Node-level RBAC (Lead / Contributor / Viewer)
+Append-only event log with side panel
+Cursor presence
+One bonus feature (recommended: Presence Heatmap or AI Summary Export)
+Deployment on Render
+
+12.2 Post-Hackathon V2 (Not in Scope)
+Persistent rooms (rooms currently expire after 24h of inactivity)
+Template library for common brainstorm formats
+Comments and @mention threading on nodes
+Mobile responsive canvas (touch gestures)
+Third-party integrations (Jira, Linear, GitHub Issues) — once disqualification rule lifted
+Advanced presence features: video thumbnails, status indicators
+Offline-first with IndexedDB event queue
+
+13. Dependencies
+Dependency
+Notes / Constraint
+Node.js WebSocket server (ws npm package)
+Custom implementation — no third-party WebSocket hosting
+CRDT library (e.g., Yjs)
+Permitted — UI/canvas library; handles text CRDT
+Canvas rendering library (e.g., Konva.js, Fabric.js, or custom SVG/Canvas)
+Permitted
+AI classification (Anthropic Claude API — free tier)
+[ASSUMPTION] Free tier; if unavailable, rule-based fallback is used
+Render deployment platform
+Required for judging; WebSocket requires non-serverless instance type (Web Service, not Static Site)
+Database (PostgreSQL, SQLite, or in-memory store)
+Required for event log persistence; SQLite acceptable for hackathon
+JWT library
+For session token signing/verification
+React or Svelte (frontend framework)
+Permitted; choice is architectural decision of the team
+
+End of Product Requirements Document
+LIGMA PRD v1.0 | DevDay &apos;26 Hackathon | Dev &amp; Design Society

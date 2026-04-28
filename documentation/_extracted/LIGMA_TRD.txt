@@ -1,0 +1,1254 @@
+﻿LIGMA
+Technical Requirements Document (TRD)
+Virtual Collaboration Workspace — DevDay &apos;26 Hackathon
+
+1. System Architecture Overview
+1.1 Architecture Pattern
+Architecture Decision
+LIGMA uses an Event-Sourced, WebSocket-first architecture. All state changes are represented as immutable events. The canvas state at any point is derived by replaying events from an append-only log. Real-time communication uses a custom-built WebSocket server — no third-party WebSocket hosting services.
+
+1.2 High-Level Component Diagram
+The system has four primary layers:
+Browser Client — React SPA (canvas rendering, WebSocket client, AI badge display, panels)
+Custom WebSocket Server — Node.js ws-based server managing room sessions, event broadcasting, RBAC enforcement
+REST API Server — Express.js handling authentication, room management, initial state delivery, AI classification proxy
+Persistence Layer — Database (PostgreSQL or SQLite) storing events, rooms, users, node ACLs
+
+Layer
+Technology Stack
+Frontend Framework
+React 18+ with TypeScript
+Canvas Rendering
+Konva.js (React-Konva) or custom HTML5 Canvas with SVG overlay
+CRDT / Conflict Resolution
+Yjs (Y.Text for text nodes; custom Y.Map for node properties)
+State Management
+Zustand or Redux Toolkit (client-side canvas state)
+WebSocket Client
+Native browser WebSocket API (no third-party WS client library)
+Backend Framework
+Node.js + Express.js
+WebSocket Server
+ws npm package (raw WebSocket, NOT Socket.io, NOT Pusher, NOT Ably)
+Database
+PostgreSQL (Render managed DB) or SQLite (file-based, simpler for hackathon)
+ORM
+Prisma or Drizzle ORM
+AI Classification
+Anthropic Claude API (claude-haiku for low latency) — free tier
+Authentication
+JWT (jsonwebtoken npm package); session tokens stored in localStorage
+Deployment
+Render Web Service (backend) + Render Static Site (frontend)
+
+2. Frontend Architecture
+2.1 Project Structure
+src/
+  components/
+    canvas/          # Canvas layer components
+      CanvasStage.tsx       # Root canvas component (Konva Stage)
+      StickyNote.tsx        # Sticky note node
+      ShapeNode.tsx         # Rectangle, ellipse, triangle
+      TextBlock.tsx         # Standalone text block
+      ArrowConnector.tsx    # Arrow/connector with label
+      FreehandStroke.tsx    # SVG path freehand stroke
+      RemoteCursor.tsx      # Peer cursor with label
+      SelectionBox.tsx      # Multi-select bounding box
+      AITagBadge.tsx        # Intent classification badge
+      LockIcon.tsx          # Node lock indicator
+    panels/
+      TaskBoard.tsx         # Right-side Task Board panel
+      EventLog.tsx          # Left-side Event Log panel
+    toolbar/
+      Toolbar.tsx           # Floating pill toolbar
+      ToolButton.tsx        # Individual tool button
+    presence/
+      PresenceAvatars.tsx   # Top-right user avatar strip
+    overlays/
+      ConnectionStatus.tsx  # Bottom-right WS status
+      ToastContainer.tsx    # Toast notification stack
+      ContextMenu.tsx       # Right-click context menu
+  hooks/
+    useWebSocket.ts        # Custom WS connection hook
+    useCanvas.ts           # Canvas state + operations
+    useAIClassifier.ts     # Debounced AI classification
+    useEventLog.ts         # Event log management
+    useRBAC.ts             # Permission checking
+  stores/
+    canvasStore.ts         # Zustand: nodes, selection, viewport
+    userStore.ts           # Zustand: current user, role
+    presenceStore.ts       # Zustand: remote cursors, online users
+    taskStore.ts           # Zustand: Task Board entries
+    eventLogStore.ts       # Zustand: event log entries
+  ws/
+    WebSocketClient.ts     # WS connection manager (class)
+    MessageHandlers.ts     # Handlers per message type
+    MessageTypes.ts        # TypeScript type definitions
+  api/
+    roomApi.ts             # REST: create/join room
+    authApi.ts             # REST: authenticate
+  utils/
+    crdt.ts                # Yjs integration helpers
+    geometry.ts            # Canvas math utilities
+    viewport.ts            # Pan/zoom transforms
+
+2.2 WebSocket Client Implementation
+Critical Constraint
+The WebSocket client uses the native browser WebSocket API directly. No third-party WebSocket client libraries (e.g., Socket.io-client, Pusher-js, Ably) are used. Connection management, heartbeat, and reconnection logic are all custom-implemented.
+
+WebSocketClient Class
+class WebSocketClient {
+  private ws: WebSocket | null = null;
+  private roomId: string;
+  private token: string;
+  private lastSequenceNumber: number = 0;
+  private reconnectAttempt: number = 0;
+  private maxReconnectAttempts: number = 10;
+  private heartbeatInterval: ReturnType&lt;typeof setInterval&gt; | null = null;
+  private messageHandlers: Map&lt;string, Function&gt; = new Map();
+
+  connect(): void {
+    const wsUrl = `${WS_BASE_URL}/ws?roomId=${this.roomId}&amp;token=${this.token}`;
+    this.ws = new WebSocket(wsUrl);
+    this.ws.onopen = this.handleOpen.bind(this);
+    this.ws.onmessage = this.handleMessage.bind(this);
+    this.ws.onclose = this.handleClose.bind(this);
+    this.ws.onerror = this.handleError.bind(this);
+  }
+
+  private handleOpen(): void {
+    this.reconnectAttempt = 0;
+    this.startHeartbeat();
+    this.send({ type: &apos;RECONNECT&apos;, lastSequenceNumber: this.lastSequenceNumber });
+  }
+
+  private handleClose(event: CloseEvent): void {
+    this.stopHeartbeat();
+    if (!event.wasClean) this.scheduleReconnect();
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectAttempt &gt;= this.maxReconnectAttempts) return;
+    const baseDelay = Math.min(500 * 2 ** this.reconnectAttempt, 30000);
+    const jitter = baseDelay * 0.2 * (Math.random() * 2 - 1);
+    setTimeout(() =&gt; this.connect(), baseDelay + jitter);
+    this.reconnectAttempt++;
+  }
+
+  private startHeartbeat(): void {
+    this.heartbeatInterval = setInterval(() =&gt; {
+      if (this.ws?.readyState === WebSocket.OPEN)
+        this.ws.send(JSON.stringify({ type: &apos;PING&apos; }));
+    }, 5000);
+  }
+}
+
+2.3 CRDT Integration (Yjs)
+Text conflict resolution for canvas node text content uses Yjs Y.Text CRDT:
+import * as Y from &apos;yjs&apos;;
+
+// Per-node Yjs document (one doc per text node)
+const ydoc = new Y.Doc();
+const ytext = ydoc.getText(&apos;content&apos;);
+
+// Apply remote update (received via WebSocket CANVAS_DELTA with type TEXT_CRDT)
+Y.applyUpdate(ydoc, remoteUpdate);
+
+// Encode local update to broadcast
+ydoc.on(&apos;update&apos;, (update: Uint8Array) =&gt; {
+  wsClient.send({ type: &apos;CANVAS_DELTA&apos;, nodeId, deltaType: &apos;TEXT_CRDT&apos;,
+    payload: Array.from(update) });
+});
+
+For non-text properties (position x/y, dimensions w/h, color, lock state), the conflict resolution strategy is:
+Timestamped last-write-wins: each delta carries a client-generated timestamp; the server assigns a sequenceNumber; clients apply in sequence order
+Rationale: position/style conflicts are rare and non-semantic; data loss risk is low; CRDT overhead for positional data is not justified
+
+3. Backend Architecture
+3.1 Server Project Structure
+server/
+  src/
+    ws/
+      WebSocketServer.ts      # Custom WS server implementation
+      RoomRegistry.ts         # Room -&gt; Set&lt;ClientConnection&gt; registry
+      MessageRouter.ts        # Routes incoming messages to handlers
+      handlers/
+        canvasDeltaHandler.ts # Validates + broadcasts canvas changes
+        cursorMoveHandler.ts  # Broadcasts cursor position updates
+        reconnectHandler.ts   # Handles RECONNECT + event replay
+        rbacHandler.ts        # RBAC validation for mutations
+    rest/
+      routes/
+        rooms.ts              # POST /rooms, GET /rooms/:id
+        auth.ts               # POST /auth/join
+        events.ts             # GET /rooms/:id/events (HTTP fallback)
+        tasks.ts              # GET /rooms/:id/tasks
+      middleware/
+        authMiddleware.ts     # JWT verification
+        rateLimiter.ts        # Request rate limiting
+    services/
+      EventStore.ts           # Append-only event persistence
+      CanvasStateService.ts   # Builds current state from events
+      AIClassifierService.ts  # Classifies text; fallback rules
+      TaskService.ts          # Manages Task Board entries
+      RBACService.ts          # Permission enforcement
+    db/
+      schema.sql              # Database schema
+      migrations/             # Database migrations
+    config/
+      env.ts                  # Environment variable validation
+    index.ts                  # Entry point: HTTP server + WS upgrade
+
+3.2 Custom WebSocket Server
+Implementation Requirement
+The WebSocket server is built using the ws npm package on top of Node.js http.createServer. Socket.io, Pusher, Ably, AWS API Gateway WebSockets, and all other third-party managed WebSocket services are STRICTLY PROHIBITED. Every aspect — connection management, room routing, heartbeat, broadcast, reconnection replay — is custom-engineered.
+
+Server Bootstrap
+import http from &apos;http&apos;;
+import WebSocket, { WebSocketServer } from &apos;ws&apos;;
+import express from &apos;express&apos;;
+
+const app = express();
+const httpServer = http.createServer(app);
+const wss = new WebSocketServer({ noServer: true });
+
+// Upgrade HTTP -&gt; WebSocket
+httpServer.on(&apos;upgrade&apos;, (request, socket, head) =&gt; {
+  const token = extractTokenFromURL(request.url);
+  verifyJWT(token, (err, user) =&gt; {
+    if (err) { socket.destroy(); return; }
+    wss.handleUpgrade(request, socket, head, (ws) =&gt; {
+      wss.emit(&apos;connection&apos;, ws, request, user);
+    });
+  });
+});
+
+Connection Registry
+interface ClientConnection {
+  ws: WebSocket;
+  userId: string;
+  roomId: string;
+  role: &apos;LEAD&apos; | &apos;CONTRIBUTOR&apos; | &apos;VIEWER&apos;;
+  displayName: string;
+  color: string;
+  lastSequenceNumber: number;
+  lastSeen: Date;
+}
+
+class RoomRegistry {
+  private rooms: Map&lt;string, Set&lt;ClientConnection&gt;&gt; = new Map();
+
+  addClient(roomId: string, client: ClientConnection): void {
+    if (!this.rooms.has(roomId)) this.rooms.set(roomId, new Set());
+    this.rooms.get(roomId)!.add(client);
+  }
+
+  broadcast(roomId: string, message: object, excludeClient?: ClientConnection): void {
+    const clients = this.rooms.get(roomId);
+    if (!clients) return;
+    const payload = JSON.stringify(message);
+    for (const client of clients) {
+      if (client === excludeClient) continue;
+      if (client.ws.readyState === WebSocket.OPEN)
+        client.ws.send(payload);
+    }
+  }
+}
+
+Message Protocol — Full Specification
+All WebSocket messages are JSON-encoded UTF-8 strings with the following envelope:
+{
+  type: MessageType;         // string enum
+  roomId: string;            // UUID
+  userId?: string;           // sender user ID
+  sequenceNumber?: number;   // server-assigned, monotonic per room
+  timestamp: string;         // ISO 8601
+  payload: object;           // message-specific data
+}
+
+Message Type
+Direction
+Payload Description
+RECONNECT
+Client → Server
+{ lastSequenceNumber: number } — triggers event replay
+FULL_STATE
+Server → Client
+{ nodes: Node[], sequenceNumber: number } — initial canvas snapshot
+REPLAY_EVENTS
+Server → Client
+{ events: Event[] } — missed events since lastSequenceNumber
+CANVAS_DELTA
+Client → Server, Server → Clients
+{ nodeId, deltaType, delta } — single node mutation
+CURSOR_MOVE
+Client → Server, Server → Clients
+{ x: number, y: number } — throttled at 50ms
+USER_JOINED
+Server → Clients
+{ userId, displayName, role, color }
+USER_LEFT
+Server → Clients
+{ userId }
+ROLE_UPDATE
+Server → Clients
+{ userId, newRole } — live role change
+AI_TAG_UPDATE
+Server → Clients
+{ nodeId, tag: IntentTag } — classification result
+PING
+Client → Server
+{} — heartbeat
+PONG
+Server → Client
+{} — heartbeat response
+ERROR
+Server → Client
+{ code: string, message: string, nodeId?: string }
+
+Canvas Delta Types
+deltaType
+Payload Fields
+Notes
+NODE_CREATED
+nodeId, type, x, y, w, h, text, color, authorId, role
+Full node object
+NODE_MOVED
+nodeId, x, y
+Position delta
+NODE_RESIZED
+nodeId, w, h, x, y
+New dimensions + position
+NODE_TEXT_UPDATED
+nodeId, crdtUpdate: number[]
+Yjs binary update encoded as number array
+NODE_STYLE_CHANGED
+nodeId, changes: Partial&lt;NodeStyle&gt;
+Any style properties (color, border, etc)
+NODE_DELETED
+nodeId
+Only ID needed; event log records full state
+NODE_LOCKED
+nodeId, lockedBy: userId
+
+NODE_UNLOCKED
+nodeId
+
+NODE_Z_CHANGED
+nodeId, zIndex: number
+
+3.3 RBAC Server-Side Enforcement
+class RBACService {
+  canMutateNode(client: ClientConnection, node: Node, mutation: string): boolean {
+    // Viewers can never mutate
+    if (client.role === &apos;VIEWER&apos;) return false;
+
+    // Locked nodes: only Leads can mutate
+    if (node.locked &amp;&amp; client.role !== &apos;LEAD&apos;) return false;
+
+    // Lock/unlock operations: Lead only
+    if ([&apos;NODE_LOCKED&apos;,&apos;NODE_UNLOCKED&apos;].includes(mutation) &amp;&amp; client.role !== &apos;LEAD&apos;)
+      return false;
+
+    return true;
+  }
+}
+
+The RBAC check runs in canvasDeltaHandler before ANY event is written to the log or broadcast. Unauthorized mutations result in an ERROR message sent only to the offending client:
+{ type: &apos;ERROR&apos;, code: &apos;RBAC_DENIED&apos;,
+  message: &apos;Permission denied: node is locked or your role is insufficient&apos;,
+  nodeId: delta.nodeId }
+
+3.4 Event Store
+Event Append Pattern
+class EventStore {
+  async appendEvent(event: CanvasEvent): Promise&lt;void&gt; {
+    // sequenceNumber is DB-assigned via auto-increment
+    await db.execute(
+      `INSERT INTO events (event_id, room_id, event_type, user_id,
+       payload, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      [event.eventId, event.roomId, event.eventType,
+       event.userId, JSON.stringify(event.payload), new Date()]
+    );
+  }
+
+  async getEventsSince(roomId: string, sequenceNumber: number): Promise&lt;CanvasEvent[]&gt; {
+    return db.query(
+      `SELECT * FROM events WHERE room_id = ? AND sequence_number &gt; ?
+       ORDER BY sequence_number ASC`,
+      [roomId, sequenceNumber]
+    );
+  }
+}
+
+3.5 AI Classification Service
+class AIClassifierService {
+  async classify(text: string): Promise&lt;IntentTag&gt; {
+    try {
+      const response = await fetch(&apos;https://api.anthropic.com/v1/messages&apos;, {
+        method: &apos;POST&apos;,
+        headers: { &apos;x-api-key&apos;: process.env.ANTHROPIC_API_KEY,
+                   &apos;anthropic-version&apos;: &apos;2023-06-01&apos;,
+                   &apos;content-type&apos;: &apos;application/json&apos; },
+        body: JSON.stringify({
+          model: &apos;claude-haiku-4-5-20251001&apos;,
+          max_tokens: 20,
+          messages: [{
+            role: &apos;user&apos;,
+            content: `Classify this text as exactly one of: ACTION_ITEM, DECISION, OPEN_QUESTION, REFERENCE. Respond with only the tag.\n\nText: ${text}`
+          }]
+        })
+      });
+      const data = await response.json();
+      const tag = data.content[0]?.text?.trim();
+      return VALID_TAGS.includes(tag) ? tag : &apos;UNCLASSIFIED&apos;;
+    } catch {
+      return this.fallbackClassify(text);
+    }
+  }
+
+  private fallbackClassify(text: string): IntentTag {
+    const lower = text.toLowerCase();
+    if (/^(todo:|action:|assign to|@\w+:)/.test(lower)) return &apos;ACTION_ITEM&apos;;
+    if (/^(decided:|we will|agreed:|resolution:)/.test(lower)) return &apos;DECISION&apos;;
+    if (/\?|^(how|why|what|should|when|where)/.test(lower)) return &apos;OPEN_QUESTION&apos;;
+    return &apos;REFERENCE&apos;;
+  }
+}
+
+4. Database Schema
+4.1 Schema Definition
+-- Rooms
+CREATE TABLE rooms (
+  room_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name          VARCHAR(200),
+  created_by    UUID NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_active   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Users (session-scoped, not persistent accounts)
+CREATE TABLE users (
+  user_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  display_name  VARCHAR(100) NOT NULL,
+  cursor_color  CHAR(7) NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Room memberships (role per room per user)
+CREATE TABLE room_members (
+  room_id       UUID REFERENCES rooms(room_id),
+  user_id       UUID REFERENCES users(user_id),
+  role          VARCHAR(20) NOT NULL CHECK (role IN (&apos;LEAD&apos;,&apos;CONTRIBUTOR&apos;,&apos;VIEWER&apos;)),
+  joined_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (room_id, user_id)
+);
+
+-- Append-only event log
+CREATE TABLE events (
+  sequence_number  BIGSERIAL PRIMARY KEY,          -- auto-increment, per-table global
+  event_id         UUID NOT NULL UNIQUE,
+  room_id          UUID NOT NULL REFERENCES rooms(room_id),
+  event_type       VARCHAR(50) NOT NULL,
+  user_id          UUID REFERENCES users(user_id),
+  payload          JSONB NOT NULL,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_events_room_seq ON events(room_id, sequence_number);
+
+-- Current node state cache (derived from events, for fast initial load)
+CREATE TABLE canvas_nodes (
+  node_id       UUID PRIMARY KEY,
+  room_id       UUID NOT NULL REFERENCES rooms(room_id),
+  node_type     VARCHAR(30) NOT NULL,
+  x             FLOAT NOT NULL,
+  y             FLOAT NOT NULL,
+  width         FLOAT,
+  height        FLOAT,
+  text_content  TEXT,
+  crdt_state    BYTEA,            -- serialized Yjs document state
+  style         JSONB,
+  author_id     UUID REFERENCES users(user_id),
+  ai_tag        VARCHAR(30),
+  locked        BOOLEAN NOT NULL DEFAULT FALSE,
+  locked_by     UUID REFERENCES users(user_id),
+  z_index       INTEGER NOT NULL DEFAULT 0,
+  deleted_at    TIMESTAMPTZ,       -- soft delete
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_nodes_room ON canvas_nodes(room_id, deleted_at);
+
+-- Task Board entries
+CREATE TABLE tasks (
+  task_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  room_id       UUID NOT NULL REFERENCES rooms(room_id),
+  node_id       UUID NOT NULL REFERENCES canvas_nodes(node_id),
+  text_content  TEXT NOT NULL,
+  author_id     UUID REFERENCES users(user_id),
+  status        VARCHAR(20) NOT NULL DEFAULT &apos;ACTIVE&apos;,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+4.2 Schema Notes
+canvas_nodes is a materialized cache derived from the event log. It is updated as events are processed (write-through). It is never the source of truth — the events table is.
+crdt_state stores the serialized Yjs document binary (encodeStateAsUpdate(ydoc)) for each text node. On connect, the client receives this binary and initializes its local Yjs doc from it.
+sequence_number is a BIGSERIAL auto-increment across all rooms (global sequence). For per-room replay, filter by room_id AND sequence_number &gt; lastKnown.
+deleted_at: soft-delete pattern ensures node history is preserved; hard delete is never performed.
+
+5. REST API Specification
+5.1 Endpoints
+Method + Path
+Auth Required
+Description
+POST /api/auth/join
+No
+Create user session, get JWT. Body: { displayName, roomId?, role }
+POST /api/rooms
+Yes (JWT)
+Create a new room. Returns: { roomId, shareUrl }
+GET /api/rooms/:roomId
+Yes
+Get room metadata and member list
+GET /api/rooms/:roomId/state
+Yes
+Get full canvas state (nodes array) for initial load
+GET /api/rooms/:roomId/events?since=N
+Yes
+Get events since sequenceNumber N (HTTP fallback for replay)
+GET /api/rooms/:roomId/tasks
+Yes
+Get all Task Board entries for a room
+PATCH /api/rooms/:roomId/members/:userId
+Yes (Lead only)
+Update a user&apos;s role: Body: { role }
+POST /api/classify
+Yes
+Proxy to AI classifier. Body: { text }. Returns: { tag }
+
+POST /api/auth/join — Response
+{
+  userId: string;            // UUID
+  displayName: string;
+  role: &apos;LEAD&apos; | &apos;CONTRIBUTOR&apos; | &apos;VIEWER&apos;;
+  token: string;             // JWT, 1hr expiry
+  color: string;             // Assigned cursor color hex
+  roomId: string;            // UUID of room joined/created
+}
+
+GET /api/rooms/:roomId/state — Response
+{
+  roomId: string;
+  nodes: CanvasNode[];       // All non-deleted nodes
+  sequenceNumber: number;    // Current max sequence number (for reconnect)
+  members: RoomMember[];     // Active members with roles
+}
+
+6. Security Architecture
+6.1 Authentication Flow
+Client calls POST /api/auth/join with displayName + optional roomId
+Server creates user record, assigns cursor color, issues JWT (HS256 signed with server secret)
+JWT payload: { userId, roomId, role, exp }
+Client stores JWT in localStorage (acceptable for hackathon; sessionStorage for higher security)
+All REST requests include: Authorization: Bearer &lt;token&gt;
+WebSocket connect URL: wss://host/ws?roomId=X&amp;token=&lt;token&gt;
+Server verifies JWT before upgrade; rejects with 401 if invalid
+
+6.2 Input Sanitization
+All text content in canvas nodes is sanitized server-side using DOMPurify (server-side) or equivalent before storage
+Node payload schemas are validated using Zod or Joi before processing
+Maximum text length enforced: 10,000 characters per node (server rejects oversized payloads with ERROR message)
+roomId and nodeId validated as UUID format before any database query
+Rate limiting on REST: 100 requests/minute per IP using express-rate-limit
+Rate limiting on WebSocket: 100 messages/second per connection; excess messages dropped with ERROR event
+
+6.3 RBAC Enforcement Layers
+Layer
+What is Enforced
+How
+Client-side (UI)
+Hide/disable edit controls on locked nodes; show lock icon
+useRBAC hook; conditional rendering; disabled props
+WebSocket message handler
+Reject NODE_LOCKED/UNLOCKED from non-Leads; reject mutations on locked nodes from non-Leads
+rbacHandler.ts runs before canvasDeltaHandler; sends ERROR if denied
+REST API middleware
+Reject PATCH /members from non-Leads
+authMiddleware.ts + role check in route handler
+Database (advisory)
+No direct DB write bypasses; all writes go through service layer
+Service layer always calls RBACService.canMutate()
+
+7. Performance &amp; Scalability
+7.1 WebSocket Optimizations
+Cursor move messages are throttled client-side to 50ms intervals using requestAnimationFrame-based scheduler
+Canvas delta messages are batched: if multiple deltas occur within 16ms (one frame), they are sent as a single array payload
+Full state snapshots are paginated into chunks of 100 nodes to prevent large initial payload blocking
+The server broadcasts delta payloads — NOT full state — ensuring message sizes remain small (typical delta: 200–500 bytes)
+
+7.2 Canvas Rendering Performance
+Canvas nodes are rendered in a Konva Layer; only dirty nodes trigger re-render (not full canvas redraw)
+Remote cursor positions are interpolated via requestAnimationFrame loop, not triggered by message arrival
+Event log panel uses virtual scrolling (react-virtual or react-window) to handle 10,000+ events without DOM bloat
+Task Board uses virtual list rendering for large task counts
+Canvas transforms (pan/zoom) use CSS transform on the container where possible for GPU acceleration
+
+7.3 Scalability Notes
+Hackathon Scope Note
+For the hackathon, single-process WebSocket server is sufficient. The architecture is designed to allow horizontal scaling via Redis pub/sub (replacing in-process RoomRegistry with Redis channels) without changing the message protocol. This should be noted in the README as a post-hackathon scaling path.
+
+8. Error Handling
+8.1 WebSocket Error Taxonomy
+Error Code
+Cause
+Client Behavior
+RBAC_DENIED
+Unauthorized node mutation
+Show toast: &apos;Permission denied: [reason]&apos;; revert optimistic UI update
+NODE_NOT_FOUND
+Delta references a deleted/nonexistent node
+Silently ignore; log to console; request fresh state
+INVALID_PAYLOAD
+Malformed message schema
+Log error; no UI impact
+RATE_LIMITED
+Too many messages
+Throttle sending; show warning toast if sustained
+AUTH_EXPIRED
+JWT expired mid-session
+Redirect to /login with &apos;Session expired&apos; message
+ROOM_NOT_FOUND
+Room has been deleted or expired
+Show error modal; redirect to /login
+SERVER_ERROR
+Unexpected server exception
+Show &apos;Something went wrong&apos; toast; auto-retry last operation after 2s
+
+8.2 Optimistic UI Pattern
+All canvas mutations are applied optimistically (immediately on the local client) before confirmation from the server. If the server returns an error:
+The client identifies the rejected mutation by correlating a client-generated requestId
+The optimistic update is reverted (previous node state is restored from local snapshot)
+An error toast is shown with the reason
+The canvas is considered potentially stale; a silent background state refresh is triggered
+
+9. Logging &amp; Monitoring
+9.1 Server-Side Logging
+Log Level
+Events Logged
+INFO
+WebSocket connect/disconnect (userId, roomId, IP masked), room create/join, role changes, reconnect replays
+WARN
+RBAC denials, rate limit hits, AI classification fallback activations, reconnect attempts &gt; 3
+ERROR
+Uncaught exceptions, database query failures, JWT verification failures, WebSocket server errors
+DEBUG
+Individual canvas delta messages (disabled in production; enabled via DEBUG=ws env var)
+
+9.2 Structured Log Format
+{
+  level: &apos;INFO&apos; | &apos;WARN&apos; | &apos;ERROR&apos;,
+  timestamp: &apos;2026-04-28T10:30:00Z&apos;,
+  service: &apos;ligma-ws-server&apos;,
+  roomId: &apos;uuid&apos;,
+  userId: &apos;uuid&apos;,
+  event: &apos;WS_CONNECT&apos;,
+  message: &apos;Client connected to room&apos;,
+  meta: { reconnect: false, sequenceNumber: 0 }
+}
+
+9.3 Health Check Endpoint
+GET /health — returns { status: &apos;ok&apos;, uptime: N, activeRooms: N, activeConnections: N }
+Render uses this endpoint for health monitoring and restart detection
+
+10. Testing Requirements
+10.1 Unit Tests
+RBACService.canMutateNode — all role/lock combinations (12 test cases)
+AIClassifierService.fallbackClassify — all pattern types with edge cases
+EventStore.appendEvent — verify event immutability (no UPDATE queries generated)
+WebSocketClient.scheduleReconnect — verify exponential backoff delays
+CRDT merge — two concurrent Y.Text edits produce identical merged state on both docs
+
+10.2 Integration Tests
+Full WebSocket handshake: connect → FULL_STATE received → disconnect → reconnect → REPLAY_EVENTS received
+RBAC enforcement: send NODE_LOCKED message from Contributor session → ERROR response; verify no event written to DB
+AI classification pipeline: POST /classify with known text → correct tag returned within 3s
+Event replay correctness: apply N events to empty state, compare to canvas_nodes table — must match
+
+10.3 Judge-Scenario Tests
+Multi-tab sync: open two browser tabs with different users; draw in Tab A; verify Tab B updates within 500ms
+Conflict resolution: two users type in same text node simultaneously via two WS connections; verify both see identical merged text
+RBAC bypass: send raw curl WebSocket message with NODE_LOCKED delta from Contributor token; verify ERROR response and no DB write
+Cursor presence: verify cursor label appears within 500ms of peer connecting
+
+11. Deployment — Render
+11.1 Services Required
+Service
+Render Type
+Configuration
+Backend (Express + WS)
+Web Service
+Build: npm run build; Start: node dist/index.js; Instance: Standard (not Starter — needs persistent connections)
+Frontend (React SPA)
+Static Site
+Build: npm run build; Publish dir: dist; Auto-deploy from git
+Database
+PostgreSQL (Render managed) or SQLite
+For hackathon: SQLite on persistent disk is sufficient; avoids DB addon cost
+
+11.2 Environment Variables
+Variable
+Description
+PORT
+Server port (Render sets this automatically)
+JWT_SECRET
+Secret for JWT signing (32+ random chars)
+ANTHROPIC_API_KEY
+API key for Claude AI classification
+DATABASE_URL
+PostgreSQL connection string or SQLite file path
+CLIENT_ORIGIN
+Frontend URL for CORS (e.g., https://ligma.onrender.com)
+WS_HEARTBEAT_INTERVAL
+Heartbeat interval in ms (default: 5000)
+NODE_ENV
+production
+
+11.3 Critical Render Configuration
+WebSocket connections: Render Web Services support WebSocket; NO additional configuration required
+Keep-alive: Render free tier spins down after 15min of inactivity. Implement a self-ping: every 10 minutes, server sends a health request to its own /health endpoint
+Connection timeout: Render&apos;s proxy may close idle WebSocket connections after 60s. The 5s heartbeat PING/PONG prevents this
+Persistent disk: If using SQLite, attach a Render persistent disk (1GB free tier) mounted at /data; set DATABASE_URL=/data/ligma.db
+Build command for backend: npm ci &amp;&amp; npm run build
+Build command for frontend: npm ci &amp;&amp; npm run build — set VITE_WS_URL and VITE_API_URL env vars at build time
+
+11.4 Production Checklist
+WebSocket URL is wss:// (not ws://) in production
+CORS configured to allow only the frontend Render domain
+JWT_SECRET is a strong random value (not the default/dev value)
+ANTHROPIC_API_KEY set in Render environment variables (not committed to git)
+Health check endpoint verified in Render dashboard
+Database migrations run successfully on first deploy
+README contains architecture diagram + CRDT strategy explanation
+Live demo tested with two simultaneous browser sessions before judging
+
+12. Technical Decisions Log
+Decision
+Chosen Approach
+Rationale + Alternatives Rejected
+WebSocket implementation
+ws npm package, custom server from http.createServer upgrade
+Socket.io rejected (third-party managed WebSocket per constraint). Raw implementation ensures full control of message flow, reconnect logic, and RBAC enforcement.
+CRDT for text
+Yjs Y.Text
+Yjs is a UI/canvas library permitted by constraint. Alternatives: custom OT (complex, error-prone), Automerge (heavier). Yjs is battle-tested and well-documented.
+Non-text conflict resolution
+Timestamped last-write-wins
+For positional data, CRDT overhead is not justified. LWW is correct because: two users dragging the same node to different positions is always resolved by the more recent intent.
+Event sourcing
+Append-only events table with materialized node cache
+Pure event sourcing alone has slow initial load (replay all events). Cache adds fast initial state; events remain source of truth for time-travel and audit.
+Database
+PostgreSQL / SQLite
+SQLite for hackathon simplicity (no separate DB service needed); PostgreSQL path available for production. Both supported via same Prisma schema.
+AI model
+claude-haiku-4-5-20251001 (fastest, cheapest)
+Low latency classification (sub-1s on unconstrained connection) is critical for the 3-second PRD requirement. Sonnet/Opus are slower; haiku is sufficient for single-intent classification.
+Frontend canvas
+Konva.js / React-Konva
+Provides hardware-accelerated Canvas rendering with React component model. Fabric.js rejected (older, less performant). Custom SVG rejected (cursor + CRDT complexity).
+State management
+Zustand
+Lightweight, hooks-based, no boilerplate. Redux Toolkit rejected for hackathon timeframe. Zustand&apos;s atomic stores align with canvas node-level update patterns.
+
+End of Technical Requirements Document
+LIGMA TRD v1.0 | DevDay &apos;26 Hackathon | Dev &amp; Design Society
+13. Integrations &amp; External Services
+13.1 Anthropic Claude API Integration
+Integration Scope
+The only external API integration is the Anthropic Claude API used for AI intent classification. All other functionality — real-time communication, auth, storage — is custom-built in-house. No third-party WebSocket services, no managed real-time platforms.
+
+Parameter
+Value
+API Endpoint
+https://api.anthropic.com/v1/messages
+Model Used
+claude-haiku-4-5-20251001 (lowest latency for classification task)
+Authentication
+x-api-key header with ANTHROPIC_API_KEY env variable
+anthropic-version header
+2023-06-01
+max_tokens
+20 (classification response is a single tag word)
+Timeout
+3000ms — after which fallback rule-based classifier is used
+Retry Policy
+No automatic retry on 5xx; fallback classifier activates immediately
+Rate Limit Handling
+If 429 received, activate fallback; log WARN; resume AI after 60s backoff
+Cost Control
+Classification triggered only after 1.5s debounce; cancelled if text unchanged
+Environment Isolation
+ANTHROPIC_API_KEY never exposed to frontend; all calls go through POST /api/classify proxy
+
+13.1.1 Prompt Design
+System: You are an intent classifier for a collaborative brainstorming tool.
+        Respond with ONLY one of these exact tags, nothing else:
+        ACTION_ITEM, DECISION, OPEN_QUESTION, REFERENCE
+
+User:   Classify this canvas note text:
+        &quot;Assign to Alex: Fix the auth bug before demo&quot;
+
+Expected Response: ACTION_ITEM
+
+13.1.2 Fallback Classifier Rules
+Pattern (regex)
+Matched Tag
+Examples
+/^(todo:|action:|assign to|@\w+:)/i
+ACTION_ITEM
+&apos;TODO: fix login&apos;, &apos;Assign to dev: implement X&apos;
+/^(decided:|we will|agreed:|resolution:)/i
+DECISION
+&apos;Decided: use PostgreSQL&apos;, &apos;Agreed: daily standups&apos;
+/\?|^(how|why|what|should|when|where|can we)/i
+OPEN_QUESTION
+&apos;How do we handle auth?&apos;, &apos;Should we use Redis?&apos;
+No pattern matches
+REFERENCE
+Notes, links, background context
+
+13.2 Yjs CRDT Library Integration
+Yjs is classified as a UI/canvas library and is explicitly permitted under the technical constraints. It handles CRDT-based text conflict resolution only.
+Aspect
+Specification
+Package
+yjs (latest stable, e.g., ^13.6)
+Used APIs
+Y.Doc, Y.Text, Y.applyUpdate(), Y.encodeStateAsUpdate(), ydoc.on(&apos;update&apos;, ...)
+Scope
+Text content of sticky notes and text blocks ONLY — not for position, style, or metadata
+Per-Node Isolation
+One Y.Doc instance per text node; docs are NOT shared across nodes
+Binary Transport
+Yjs update binary (Uint8Array) encoded as Array&lt;number&gt; for JSON transport over WebSocket
+Server Role
+Server stores serialized Yjs state (crdt_state BYTEA column); broadcasts CRDT updates without interpreting them
+Initial Sync
+On join, client receives crdt_state bytes from canvas_nodes table; initializes local Y.Doc via Y.applyUpdate()
+Awareness Protocol
+Yjs Awareness (y-protocols) is NOT used — custom cursor presence protocol is implemented instead
+
+14. Authentication &amp; Authorization — Full Specification
+14.1 Authentication Flow (Detailed)
+User submits POST /api/auth/join with { displayName: string, roomId?: string, role?: &apos;LEAD&apos;|&apos;CONTRIBUTOR&apos;|&apos;VIEWER&apos; }
+Server validates displayName (1–100 chars, sanitized); defaults role to CONTRIBUTOR if unspecified
+Server creates user record in users table; assigns cursor color (round-robin from 10-color palette)
+If roomId provided and room exists: server creates room_members entry; if room not found: 404 returned
+If no roomId: server creates new room, assigns LEAD role to this user
+Server signs JWT with HS256 algorithm: payload = { userId, roomId, role, displayName, color, iat, exp }
+JWT expiry: 3600 seconds (1 hour) — [ASSUMPTION] sufficient for hackathon demo sessions
+Server returns full session object (see Section 5.1)
+Client stores JWT in localStorage key &apos;ligma_token&apos;; roomId in localStorage key &apos;ligma_room&apos;
+
+14.2 Token Lifecycle &amp; Refresh
+[ASSUMPTION] Token Refresh Strategy
+For the hackathon MVP, token refresh is handled by redirect: when AUTH_EXPIRED error is received via WebSocket, the client redirects to /login. A silent refresh endpoint (POST /api/auth/refresh) is documented here as a post-hackathon improvement.
+
+Token expiry is checked on every REST request via authMiddleware.ts
+Token expiry is checked on WebSocket connection upgrade; expired token → 401 → socket.destroy()
+WebSocket mid-session expiry: server proactively sends { type: &apos;ERROR&apos;, code: &apos;AUTH_EXPIRED&apos; } 60 seconds before JWT exp; client re-authenticates and reconnects
+JWT secret rotation: requires all active sessions to re-authenticate; acceptable for hackathon
+
+14.3 Authorization Matrix — Complete
+Operation
+Lead
+Contributor
+Viewer
+Create canvas node
+✓
+✓
+✗
+Edit own unlocked node
+✓
+✓
+✗
+Edit any unlocked node
+✓
+✓
+✗
+Edit locked node
+✓
+✗
+✗
+Delete own unlocked node
+✓
+✓
+✗
+Delete any node
+✓
+✗
+✗
+Lock a node
+✓
+✗
+✗
+Unlock a node
+✓
+✗
+✗
+Change another user&apos;s role
+✓
+✗
+✗
+Remove own Lead role (if other Lead exists)
+✓
+N/A
+N/A
+Export AI summary
+✓
+✓
+✓
+View event log
+✓
+✓
+✓
+View Task Board
+✓
+✓
+✓
+View canvas (read-only)
+✓
+✓
+✓
+
+14.4 Security Boundary: Client vs Server
+Client-side RBAC is for UX only (hiding/disabling controls). Server-side RBAC is the security boundary. The following server-side checks are mandatory:
+Every CANVAS_DELTA WebSocket message: RBACService.canMutateNode() called before event write
+Every PATCH /api/rooms/:id/members: role check in route handler before DB update
+JWT signature verified on every request/connection — no trust without valid signature
+nodeId existence verified against DB before processing any delta to prevent ghost node attacks
+
+15. Infrastructure Architecture
+15.1 Infrastructure Topology (Render Deployment)
+Component
+Render Service / Config
+Backend API + WebSocket Server
+Render Web Service — Node.js — Standard instance type (for persistent WS connections)
+Frontend SPA
+Render Static Site — auto-deployed from /client/dist — CDN-backed
+Database (Option A: PostgreSQL)
+Render Managed PostgreSQL — 1GB free tier — connection string in DATABASE_URL env var
+Database (Option B: SQLite)
+Persistent Disk on Web Service — 1GB — mounted at /data — DATABASE_URL=/data/ligma.db
+Environment Variables Store
+Render Dashboard — encrypted at rest — injected at runtime
+SSL/TLS Termination
+Render&apos;s proxy — automatic — HTTPS + WSS certificates managed by Render
+Domain
+*.onrender.com subdomain — no custom domain needed for hackathon
+
+15.2 Network Request Flow
+User navigates to https://ligma-frontend.onrender.com (Render Static Site CDN)
+React SPA loads; calls POST https://ligma-backend.onrender.com/api/auth/join
+JWT returned; stored in localStorage
+Client opens WebSocket: wss://ligma-backend.onrender.com/ws?roomId=X&amp;token=JWT
+Render proxy upgrades HTTP → WSS; forwards to Node.js process
+Node.js http.createServer &apos;upgrade&apos; event fires; JWT verified; WS connection established
+Server sends FULL_STATE message with current canvas; client renders
+All subsequent canvas mutations flow bidirectionally over this WebSocket connection
+
+15.3 Cold Start Mitigation
+Render free tier spins down Web Service after 15 minutes of no HTTP requests
+Mitigation: self-ping cron — server calls its own GET /health every 10 minutes via setInterval in index.ts
+// In server index.ts — keep-alive self-ping
+if (process.env.NODE_ENV === &apos;production&apos;) {
+  const SELF_URL = process.env.RENDER_EXTERNAL_URL + &apos;/health&apos;;
+  setInterval(() =&gt; fetch(SELF_URL).catch(() =&gt; {}), 10 * 60 * 1000);
+}
+
+15.4 CORS Configuration
+app.use(cors({
+  origin: process.env.CLIENT_ORIGIN,   // e.g. https://ligma-frontend.onrender.com
+  methods: [&apos;GET&apos;, &apos;POST&apos;, &apos;PATCH&apos;],
+  allowedHeaders: [&apos;Authorization&apos;, &apos;Content-Type&apos;],
+  credentials: false
+}));
+
+16. Monitoring &amp; Observability
+16.1 Runtime Metrics (In-Process)
+For hackathon scope, monitoring is in-process (no external monitoring service). The /health endpoint exposes key metrics:
+GET /health
+{
+  status: &apos;ok&apos;,
+  uptime: 3600,                  // seconds
+  activeRooms: 3,                // rooms with at least one connected user
+  activeConnections: 12,         // total WebSocket connections
+  eventsProcessed: 847,          // total events written since startup
+  aiClassificationsTotal: 53,    // total AI API calls made
+  aiClassificationsFallback: 2,  // times fallback was used
+  memoryUsageMB: 128,            // process.memoryUsage().heapUsed / 1MB
+  dbConnectionOk: true           // result of SELECT 1 health check
+}
+
+16.2 Alerting (Manual for Hackathon)
+Render dashboard provides automatic restart on crash — no manual alerting needed for hackathon
+Server logs (stdout) visible in Render dashboard log viewer
+Critical errors trigger process.exitCode = 1 after graceful shutdown (Render detects and restarts)
+Post-hackathon: integrate with Sentry (error tracking) and Prometheus + Grafana (metrics)
+
+16.3 WebSocket Connection Monitoring
+RoomRegistry exposes getStats(): { totalRooms, totalConnections, connectionsByRoom: Record&lt;roomId, number&gt; }
+Stats logged every 5 minutes at INFO level
+Connection count spike (&gt;100 connections) triggers WARN log
+Memory usage &gt;500MB triggers WARN log; &gt;800MB triggers ERROR log
+
+17. Edge Cases &amp; Technical Handling
+17.1 WebSocket Edge Cases
+Edge Case
+Detection
+Handling
+Client disconnects mid-text-edit
+WS close event during edit
+Partial CRDT update NOT broadcast; editor state buffered locally; on reconnect, full current text sent as single CRDT update
+Two Leads simultaneously lock the same node
+Both generate NODE_LOCKED events in quick succession
+Both events written to log; last timestamp wins for node.locked state; no crash; inconsistency logged at WARN
+Network partition &gt; 60s
+No PONG received for 3 consecutive PINGs (15s)
+Client marks connection dead; shows &apos;Disconnected&apos; banner; attempts reconnect with backoff; on success, REPLAY_EVENTS from last sequenceNumber
+Client sends message with sequenceNumber from the future
+sequenceNumber &gt; server current max
+Reject with INVALID_PAYLOAD error; do not write event; request fresh FULL_STATE
+WebSocket message &gt; 1MB
+message.length check on server
+Drop message; send INVALID_PAYLOAD error; log WARN with userId
+All Leads leave a room
+USER_LEFT event where user.role === &apos;LEAD&apos; and no other Leads remain
+Server promotes longest-active Contributor to LEAD via ROLE_UPDATE broadcast; if no Contributors, room goes Lead-less (acceptable for hackathon)
+Render proxy closes idle WS connection (60s idle timeout)
+WS onclose with code 1006 (abnormal)
+PING every 5s prevents idle timeout; if closed anyway, standard reconnect flow applies
+Browser tab backgrounded (Page Visibility API)
+document.addEventListener(&apos;visibilitychange&apos;)
+WS heartbeat continues; cursor marked &apos;Away&apos; via CURSOR_MOVE { x, y, status: &apos;AWAY&apos; }; edits queued in local buffer; flushed on visibilitychange to &apos;visible&apos;
+
+17.2 Canvas &amp; Data Edge Cases
+Edge Case
+Detection
+Handling
+Canvas node text exceeds 10,000 chars
+Server: payload.text.length &gt; 10000
+Server rejects with ERROR { code: &apos;PAYLOAD_TOO_LARGE&apos; }; client enforces counter with hard stop
+User drags node outside visible viewport
+node.x or node.y outside canvas bounds (no hard bounds — infinite canvas)
+No restriction; mini-map shows node position; canvas auto-pans if drag reaches viewport edge during active drag
+User joins room with &gt; 500 nodes
+canvas_nodes count &gt; 500 for room
+Full state paginated in chunks of 100 via FULL_STATE_CHUNK messages; client renders progressively; loading indicator shown
+AI classification returns unknown tag value
+VALID_TAGS.includes(tag) === false
+Server substitutes &apos;UNCLASSIFIED&apos;; logs WARN with the invalid tag value; broadcasts UNCLASSIFIED to clients
+Duplicate NODE_CREATED event (replay idempotency)
+node_id already exists in canvas_nodes
+INSERT ... ON CONFLICT DO NOTHING; event still written to log (immutable); no duplicate created
+Sticky note created at exact same coordinates by two users
+Two NODE_CREATED events at identical x, y
+Both nodes created (different node_ids); they stack; user can drag to separate them; no merge
+CRDT state corruption (invalid Yjs binary)
+Y.applyUpdate() throws
+Catch error; log ERROR; do not apply update; send INVALID_PAYLOAD to sender; node text preserved at last known good state
+Room expiry (24h inactivity)
+Cron job checks last_active column
+[ASSUMPTION] Rooms expire after 24h inactivity for hackathon; cron runs hourly; expired rooms marked inactive; clients receive ROOM_NOT_FOUND on reconnect
+
+18. Technical Dependencies
+18.1 Frontend Dependencies
+Package
+Version / Purpose
+react
+^18.x — UI framework
+typescript
+^5.x — type safety
+vite
+^5.x — build tool and dev server
+react-konva / konva
+^9.x — hardware-accelerated canvas rendering
+yjs
+^13.6.x — CRDT text conflict resolution
+zustand
+^4.x — lightweight state management
+react-virtual or react-window
+^3.x — virtualized list rendering for Event Log / Task Board
+clsx / tailwind-merge
+latest — conditional CSS class utilities
+tailwindcss
+^3.x — utility CSS (optional; or CSS Modules)
+uuid
+^9.x — UUID v4 generation for client-assigned nodeIds
+date-fns
+^3.x — relative timestamp formatting (&apos;5 min ago&apos;)
+
+18.2 Backend Dependencies
+Package
+Version / Purpose
+node
+^20.x LTS — runtime
+typescript
+^5.x
+ts-node or tsx
+latest — TypeScript execution
+express
+^4.x — REST API framework
+ws
+^8.x — WebSocket server (raw — NOT Socket.io)
+jsonwebtoken
+^9.x — JWT sign/verify
+zod
+^3.x — runtime schema validation for WS messages and REST bodies
+isomorphic-dompurify or sanitize-html
+latest — server-side HTML sanitization
+express-rate-limit
+^7.x — REST endpoint rate limiting
+prisma or drizzle-orm
+latest — ORM for PostgreSQL/SQLite
+better-sqlite3 (if SQLite)
+^9.x — synchronous SQLite driver
+pg (if PostgreSQL)
+^8.x — PostgreSQL client
+node-fetch or built-in fetch
+Node 20 has native fetch — used for Anthropic API calls
+dotenv
+^16.x — environment variable loading
+cors
+^2.x — CORS middleware
+helmet
+^7.x — HTTP security headers
+
+18.3 Development &amp; Tooling Dependencies
+Package
+Purpose
+vitest or jest
+Unit and integration testing
+supertest
+REST API integration testing
+ws (client usage in tests)
+WebSocket integration test client
+eslint + prettier
+Code quality and formatting
+husky + lint-staged
+Pre-commit hooks (optional for hackathon)
+concurrently
+Run frontend + backend dev servers simultaneously
+
+19. Bonus Features — Technical Specification
+19.1 Presence Heatmap
+Implementation Approach
+The heatmap is a canvas overlay derived from the event log. Edit density per canvas coordinate region is calculated server-side from NODE_MOVED, NODE_TEXT_UPDATED, NODE_CREATED events and delivered as a 2D grid of intensity values.
+
+Data Model
+interface HeatmapCell {
+  gridX: number;     // canvas coordinate bucket (every 100px)
+  gridY: number;
+  intensity: number; // 0.0 – 1.0 (normalized event count)
+}
+
+Generation Algorithm
+Server queries events table: SELECT payload-&gt;&gt;&apos;x&apos;, payload-&gt;&gt;&apos;y&apos;, event_type FROM events WHERE room_id = ? AND event_type IN (&apos;NODE_CREATED&apos;,&apos;NODE_MOVED&apos;,&apos;NODE_TEXT_UPDATED&apos;)
+Each event coordinate is bucketed into 100px grid cells
+Cell hit counts normalized to 0.0–1.0 range
+Delivered via GET /api/rooms/:id/heatmap as { cells: HeatmapCell[] }
+
+Frontend Rendering
+Heatmap rendered as a semi-transparent Konva Layer above the canvas content layer
+Each cell rendered as a colored rectangle: intensity 0 = transparent, 1 = red (#E53E3E) at 50% opacity
+Color scale: blue (low) → yellow (medium) → red (high) using linear interpolation
+Toggle via keyboard shortcut H; button in toolbar
+Heatmap refreshes every 30 seconds when visible (rolling GET /heatmap call)
+
+19.2 Time-Travel Replay
+Implementation Approach
+Time-travel replay reconstructs canvas state by replaying events up to a selected timestamp. All events from the events table are fetched and applied sequentially in a read-only canvas mode.
+
+Replay State Machine
+type ReplayState = &apos;LIVE&apos; | &apos;REPLAY_LOADING&apos; | &apos;REPLAYING&apos; | &apos;PAUSED&apos;;
+
+LIVE → REPLAY_LOADING: user clicks &apos;Time Travel&apos; button
+REPLAY_LOADING → REPLAYING: all events fetched from server; initial empty canvas state set
+REPLAYING: scrubber position determines which events are applied; events replayed up to scrubber timestamp
+Playback speeds: 1x, 2x, 5x, 10x — implemented via setTimeout interval scaling
+PAUSED: scrubber stopped; canvas frozen at replay state
+Exit replay: button click or pressing Escape → WebSocket reconnect → back to LIVE
+
+Technical Constraints
+During replay: WebSocket incoming events are queued but NOT applied to canvas
+Replay uses a separate in-memory canvas state (replayState) — does not mutate live canvasStore
+All editing tools are disabled during replay; toolbar shows &apos;Replay Mode&apos; banner
+Replay canvas is read-only: clicks, drags, keyboard shortcuts do nothing
+
+19.3 AI Summary Export
+Export Structure
+{
+  generatedAt: string,       // ISO 8601
+  roomId: string,
+  sessionDuration: string,   // e.g., &apos;2h 15m&apos;
+  summary: {
+    decisions: string[],     // text of DECISION-tagged nodes
+    actionItems: {           // ACTION_ITEM nodes
+      text: string,
+      author: string,
+      timestamp: string
+    }[],
+    openQuestions: string[], // OPEN_QUESTION nodes
+    references: string[]     // REFERENCE nodes
+  }
+}
+
+Export Flow
+User clicks &apos;Export Summary&apos; button in Task Board header
+Client calls GET /api/rooms/:id/summary
+Server fetches all non-deleted canvas_nodes with ai_tag for the room
+Server groups by ai_tag and constructs summary object
+Response returned as JSON; optionally formatted as Markdown string
+Client offers two actions: &apos;Copy as Markdown&apos; (clipboard API) or &apos;Download as .txt&apos;
+
+20. Implementation Checklist &amp; Priority Order
+20.1 Phase 1 — Core Infrastructure (Hours 1–4)
+Database schema creation (schema.sql)
+POST /api/auth/join — user + room creation + JWT
+Custom WebSocket server bootstrap (http.createServer + ws upgrade)
+RoomRegistry implementation
+JWT verification middleware (REST + WebSocket)
+FULL_STATE delivery on WebSocket connect
+
+20.2 Phase 2 — Real-Time Canvas (Hours 4–10)
+CANVAS_DELTA message handling (all deltaTypes)
+CURSOR_MOVE broadcast
+Basic canvas rendering: sticky notes + drag + resize
+RBAC enforcement in canvasDeltaHandler
+Reconnect + REPLAY_EVENTS flow
+CRDT (Yjs) integration for text nodes
+
+20.3 Phase 3 — AI + Task Board (Hours 10–14)
+AIClassifierService (Anthropic API + fallback)
+POST /api/classify proxy endpoint
+AI_TAG_UPDATE broadcast on classification complete
+Task Board panel — live updates via WebSocket
+Task-to-canvas node navigation (pan animation)
+
+20.4 Phase 4 — Event Log + RBAC UI + Polish (Hours 14–18)
+Event Log panel (virtual scroll, live updates)
+Node locking UI (lock icon, context menu, tooltip on blocked edit)
+Role assignment (Lead can change Contributor/Viewer roles)
+Connection status indicator + toast notifications
+Presence avatar strip + cursor labels
+
+20.5 Phase 5 — Deployment + Bonus (Hours 18–24)
+Render deployment (backend Web Service + frontend Static Site)
+Environment variable configuration
+Cold start keep-alive implementation
+README with architecture diagram + CRDT strategy
+One bonus feature (recommended: Presence Heatmap or AI Summary Export)
+End-to-end demo test with two browser sessions
+
+End of Technical Requirements Document
+LIGMA TRD v1.0 | DevDay &apos;26 Hackathon | Dev &amp; Design Society

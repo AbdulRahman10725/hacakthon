@@ -1,0 +1,724 @@
+﻿LIGMA
+UI/UX Design Specification
+Virtual Collaboration Workspace — DevDay &apos;26 Hackathon
+
+1. Design Philosophy &amp; Principles
+1.1 Core Design Tenets
+Design Philosophy
+LIGMA&apos;s UI philosophy is &apos;canvas-first, clutter-never.&apos; The canvas occupies 100% of the viewport. All secondary panels (Task Board, Event Log) are overlays or collapsible side panels that never diminish the creative space. Every control has a purpose; no decoration without function.
+
+Principle 1 — Spatial Clarity
+The canvas is the product. UI chrome is minimal and retreats when not in use. Toolbar collapses to icons only. Panels slide in from edges. Cursor focus is always on the canvas.
+Principle 2 — Real-Time Trust
+Users must always know who else is present and what they are doing. Cursors are labeled, role badges are visible, and connection status is always surfaced. There is no ambiguity about whether a colleague is in the room.
+Principle 3 — Intent Surfaces Itself
+The AI classification is visible but unobtrusive. Tags appear as small color-coded badges on nodes, not modal interruptions. The Task Board is a natural extension of the canvas, not a separate application.
+Principle 4 — Zero Dead Ends
+Every action is recoverable. Undo is always available (Ctrl+Z). Deleting a node does not destroy its Task Board entry. The event log is always accessible. There are no permanent destructive actions without confirmation.
+
+2. Information Architecture
+2.1 Application Structure
+Layer
+Description
+Public Routes
+/login, /join/:roomId — unauthenticated access points
+Room Route
+/room/:roomId — authenticated, real-time canvas workspace
+Canvas Layer
+Infinite 2D rendering surface occupying full viewport
+Overlay Layer
+Floating toolbars, context menus, presence cursors, node badges
+Panel Layer
+Right sidebar: Task Board panel; Left sidebar: Event Log panel
+Modal Layer
+Room settings, invite users, export summary, confirmation dialogs
+Toast Layer
+Ephemeral status messages (connection lost, role changed, export ready)
+
+2.2 Navigation Structure
+No traditional navigation/header bar in the canvas workspace — navigation is contextual
+Room URL is the primary navigation unit — bookmark-able, shareable
+Within a room: keyboard shortcuts (N, D, S, E, Delete) and toolbar icons are the navigation primitives
+Task Board entries navigate the canvas viewport via click (pan-and-zoom animation)
+Event log entries are informational only — no navigation action
+
+3. Screen-by-Screen Specification
+3.1 Screen 1 — Login / Join Room
+Layout
+Full-page centered card layout (480px wide, vertically centered)
+Background: dark canvas-themed image or geometric pattern (CSS, no heavy assets)
+Card: white background, 24px border-radius, 40px padding, subtle shadow
+Components
+Component
+Type
+Specification
+LIGMA logo + wordmark
+Static asset
+Top of card, center-aligned, 48px height
+Room ID input
+Text input
+Full-width, placeholder &apos;Enter Room ID or paste link&apos;, 16px font, 48px height
+Display name input
+Text input
+Full-width, placeholder &apos;Your name (visible to others)&apos;, 48px height
+Role selector
+Dropdown / Radio
+Options: Lead / Contributor / Viewer — Contributor is default
+Create Room button
+Primary CTA
+Full-width, 48px, brand blue (#2B6CB0), &apos;Create New Room&apos;
+Join Room button
+Secondary CTA
+Full-width, 48px, outlined, &apos;Join Existing Room&apos;
+Error message
+Inline alert
+Below relevant input, red (#E53E3E), 14px, icon + text
+
+States
+Default: Both inputs empty, Create/Join buttons enabled
+Loading: Button shows spinner, inputs disabled, &apos;Connecting...&apos; label
+Error — Room Not Found: &apos;No room found with that ID. Check the link and try again.&apos;
+Error — Name Required: Red border on name input, &apos;Please enter a display name&apos;
+Error — Network: Toast message &apos;Cannot connect to server. Retrying...&apos;
+
+3.2 Screen 2 — Canvas Workspace (Primary Screen)
+Layout Overview
+Canvas Workspace Layout
+The canvas workspace is a full-viewport (100vw × 100vh) surface. UI elements are layered: (1) Canvas base fills the entire viewport. (2) Top toolbar is a floating strip 56px tall, centered horizontally, rounded pill shape — does not extend edge-to-edge. (3) Right panel (Task Board) slides in from the right (320px wide). (4) Left panel (Event Log) slides in from the left (280px wide). (5) Bottom-right: Connection status indicator. (6) Top-right: User presence avatars strip. (7) Canvas cursors are positioned absolutely over the canvas layer.
+
+3.2.1 Top Toolbar (Floating Pill)
+The toolbar is a floating pill UI element centered at the top of the canvas, appearing 12px below the viewport top edge.
+Tool
+Icon
+Shortcut
+Behavior
+Select / Move
+Arrow cursor icon
+S or V
+Default tool; click to select node, drag to move; Shift+click for multi-select
+Sticky Note
+Sticky note icon
+N
+Single click on canvas creates a sticky note at click position; text cursor activates immediately
+Text Block
+T icon
+T
+Click to place a text block; enter text mode immediately
+Shape — Rect
+Square icon
+R
+Click-drag to draw rectangle
+Shape — Ellipse
+Circle icon
+O
+Click-drag to draw ellipse
+Shape — Arrow
+Arrow with line icon
+A
+Click start node, click/drag to end node or position
+Freehand Draw
+Pen/pencil icon
+D
+Click-drag to draw freehand stroke; release to commit
+Eraser
+Eraser icon
+E
+Click a stroke to delete it; drag to erase across multiple strokes
+Zoom In
++ icon
+Ctrl + +
+Increments zoom by 10%
+Zoom Out
+- icon
+Ctrl + -
+Decrements zoom by 10%
+Zoom Reset
+100% label / Fit icon
+Ctrl + 0
+Resets to 100% zoom, centers canvas
+Task Board Toggle
+Checklist icon
+Ctrl + B
+Slides Task Board panel in/out from right
+Event Log Toggle
+Clock/log icon
+Ctrl + L
+Slides Event Log panel in/out from left
+
+Toolbar States
+Active tool: highlighted with brand blue background (#2B6CB0), white icon, slight inset shadow
+Hover: light blue background (#EBF4FF), icon color darkens
+Disabled: 60% opacity (e.g., Eraser disabled when Select tool needs to be used first)
+On mobile / narrow viewport: toolbar wraps to two rows; secondary tools hidden behind &apos;...&apos; overflow button
+
+3.2.2 Canvas Surface
+The canvas renders as an HTML5 Canvas element (or SVG layer) occupying 100% of the viewport. The coordinate system is infinite; the browser viewport is a window into this space.
+Background: subtle dot-grid or small crosshatch pattern (#E2E8F0 on white, repeat every 20px) that scales with zoom
+Grid dots/lines fade below 30% zoom to avoid visual noise
+Canvas does NOT have a scroll bar; panning is via: spacebar+drag, middle mouse button drag, or two-finger trackpad scroll
+Mini-map: small (160px × 90px) thumbnail in the bottom-left corner showing the full canvas extent and current viewport position as a colored rectangle; toggleable via keyboard shortcut M
+
+3.2.3 Sticky Note Node
+Element
+Spec
+Notes
+Default size
+200px × 160px canvas units
+Auto-expands vertically on text overflow
+Background color
+8 pastel presets: Yellow (#FFFDE7), Blue (#E3F2FD), Green (#E8F5E9), Pink (#FCE4EC), Purple (#F3E5F5), Orange (#FFF3E0), Teal (#E0F2F1), Gray (#FAFAFA)
+Color picker in context menu; no custom hex in MVP
+Font
+Inter or system-ui, 14px, dark (#1A202C)
+Bold/Italic/Underline via Ctrl+B/I/U while in text edit mode
+Border
+1px solid rgba(0,0,0,0.08), border-radius 8px
+Slightly thicker on hover: 1.5px
+Shadow
+0px 2px 8px rgba(0,0,0,0.10)
+Increases to 0px 4px 16px when selected or being dragged
+AI Tag Badge
+Pill badge, top-right corner, 12px text, color-coded per intent
+ACTION_ITEM: red; DECISION: blue; OPEN_QUESTION: orange; REFERENCE: gray; UNCLASSIFIED: light gray; &apos;Analyzing...&apos;: pulsing teal
+Lock Icon
+12×12px lock icon, bottom-left corner
+Only visible when node is locked; gray (#718096)
+Resize Handle
+8×8px squares at corners and midpoints of edges
+Visible on hover/select only; cursor changes to resize cursor on hover
+Author Tooltip
+On hover: small tooltip showing &apos;Created by [Name] at [time]&apos;
+600ms delay before showing tooltip
+Selection State
+2px dashed blue border (#2B6CB0) + 8px resize handles
+Multi-select shows group bounding box
+
+3.2.4 Freehand Drawing Node
+Renders as SVG path with round linecap/linejoin for smooth appearance
+Active drawing: path renders in real time following cursor with no perceptible lag
+Stroke width selector appears in toolbar when Draw tool is active: 1px, 2px, 4px, 8px, 12px (visual dots)
+Color picker: 12 preset colors in toolbar + no-stroke option
+Completed stroke: path is an independently selectable node with bounding box
+On hover: stroke glows slightly (filter: drop-shadow) to indicate selectability
+
+3.2.5 Shape Nodes (Rectangle, Ellipse, Triangle)
+Drawn by click-drag; minimum size 20×20px to prevent micro-nodes
+Fill color: 12 presets + transparent option
+Border color: 12 presets + none option
+Border width: 0px, 1px, 2px, 4px selector
+Selected state: 8 blue resize handles + blue bounding box
+Rotation: rotation handle appears 12px above the top-center resize handle (circular arrow icon)
+
+3.2.6 Arrow / Connector
+Arrow tool: first click sets start point, second click or drag sets end point
+When hovering over a node while placing arrow endpoint: node highlights with a blue ring; endpoint snaps to node border midpoint
+Arrowhead style: filled triangle (default); can be changed to open-arrow, dot, or none via context menu
+Label: double-click on connector to add a text label that follows the midpoint of the arrow
+
+3.2.7 Context Menu (Right-Click on Node)
+Menu Item
+Role Visibility
+Action
+Edit Text
+All (if unlocked)
+Enters text edit mode on node
+Change Color
+All (if unlocked)
+Opens color swatch picker submenu (8 colors)
+Lock to Lead
+Lead only
+Locks node; icon appears; broadcasts LOCK event
+Unlock
+Lead only (on locked nodes)
+Removes lock; broadcasts UNLOCK event
+Copy
+All
+Copies node to clipboard (client-side only, no server event)
+Duplicate
+All (if unlocked)
+Creates a copy of the node offset by +20px, +20px
+Delete
+All (if unlocked); Lead on any node
+Generates NODE_DELETED event after confirmation for locked nodes
+Bring to Front / Send to Back
+All (if unlocked)
+Changes z-index; generates NODE_STYLE_CHANGED event
+View Intent Tag
+All
+Shows the current AI classification with explanation tooltip
+
+3.3 Screen 3 — Task Board Panel
+The Task Board is a right-side collapsible panel (320px wide, full viewport height) that slides in from the right edge.
+Panel Header
+Title: &apos;Task Board&apos; in 16px semibold
+Node count badge: &apos;12 tasks&apos; in gray pill
+Filter dropdown: &apos;All / Unassigned / Mine&apos; — defaults to &apos;All&apos;
+Minimize/close chevron button (top-right of panel)
+Resize handle: user can drag left edge of panel to resize between 240px and 480px
+
+Task Entry Card
+Element
+Spec
+Notes
+Task text
+16px, dark, multi-line, truncated at 3 lines with &apos;show more&apos; toggle
+Full text visible on hover in a tooltip
+Author chip
+Avatar circle (24px, initials) + &apos;Name&apos; 12px gray
+Color matches user&apos;s cursor color
+Timestamp
+Relative: &apos;5 min ago&apos;, 12px gray
+Absolute on hover tooltip: ISO timestamp
+Canvas link icon
+Link chain icon (right side), 16px, blue on hover
+Click: pans canvas to originating node with 400ms ease animation
+Status badge
+Small pill: &apos;Active&apos; (green) or &apos;Removed&apos; (gray strikethrough)
+Removed state when source node is deleted
+Card hover state
+Light blue background (#EBF4FF), slight left border accent (#2B6CB0)
+Cursor: pointer
+Card active/click state
+Darker blue (#DBEAFE) for 150ms, then viewport navigates
+
+Task Board Empty State
+Illustration: simple icon of canvas + arrow + checklist
+Primary text: &apos;No tasks yet&apos;
+Secondary text: &apos;Write an action item on the canvas — it will appear here automatically.&apos;
+
+Task Board Loading State
+3 skeleton placeholder cards (shimmer animation) while initial data loads
+
+3.4 Screen 4 — Event Log Panel
+The Event Log is a left-side collapsible panel (280px wide, full viewport height) sliding from the left edge.
+Panel Header
+Title: &apos;Activity Log&apos;
+Live indicator: green pulsing dot + &apos;Live&apos; text when connected
+Filter: &apos;All Events&apos; dropdown — options: All Events, Node Changes, User Activity, Role Changes
+
+Event Entry Row
+Element
+Spec
+Notes
+Event icon
+Color-coded icon (16px): node created (green +), deleted (red -), moved (gray arrow), text edit (pen), locked (lock), role change (shield), user joined/left (person icon)
+
+Event summary
+14px: e.g., &apos;Alex created a sticky note&apos;, &apos;Sarah locked the architecture diagram&apos;, &apos;Umar joined as Contributor&apos;
+Node names are auto-generated from first 20 chars of text content
+Timestamp
+12px gray, right-aligned: &apos;2m ago&apos;
+Absolute timestamp on hover
+Row hover
+Light gray background
+No click action in MVP; future: click to jump to canvas node
+
+Event Log States
+Loading: shimmer placeholder rows
+Empty: &apos;No activity yet. Start editing the canvas!&apos;
+Disconnected: Yellow banner at top of panel: &apos;Reconnecting... events may be delayed&apos;
+
+3.5 Presence Cursors (Canvas Overlay)
+Cursor Rendering
+Each remote user&apos;s cursor is rendered as an SVG arrow cursor in their assigned color
+Cursor label: small pill attached to cursor tip showing user&apos;s first name (max 12 chars, truncated with ellipsis)
+Label background: user&apos;s cursor color at 90% opacity; white text
+Cursor animation: position interpolated smoothly using lerp (linear interpolation) at 60fps to prevent jitter from network updates arriving at 50ms intervals
+Idle timeout: if a cursor has not moved for 30 seconds, label fades to 40% opacity and a &apos;(idle)&apos; suffix appears
+Disconnect: cursor fades out over 1 second and is removed from canvas
+Presence Avatars Strip (Top-Right)
+Shows 24px circular avatar chips for each connected user, with initials + color
+Tooltip on hover: full name + role badge
+Overflow: if &gt;5 users, shows &apos;+N more&apos; chip that expands to list on click
+Indicator dot: green = active, yellow = idle (&gt;30s no input), gray = away/disconnected
+
+3.6 Connection Status Indicator
+Bottom-right corner of canvas, 12px, always visible
+Connected: green dot + &apos;Connected&apos; text
+Reconnecting: yellow pulsing dot + &apos;Reconnecting (attempt 2/5)...&apos;
+Disconnected: red dot + &apos;Disconnected — click to retry&apos;
+On status change: subtle toast notification slides up from bottom-center with status message (auto-dismisses in 4 seconds)
+
+4. Component Design System
+4.1 Typography
+Token
+Value / Usage
+font-family-primary
+Inter, system-ui, -apple-system, sans-serif
+font-family-mono
+JetBrains Mono, Fira Code, monospace — used in Event Log event IDs
+font-size-xs
+11px — timestamps, secondary labels
+font-size-sm
+13px — sub-labels, captions, badge text
+font-size-base
+14px — body text, node text, panel content
+font-size-md
+16px — panel headers, card titles
+font-size-lg
+20px — section headers
+font-size-xl
+24px — page titles, modal headings
+font-weight-regular
+400
+font-weight-medium
+500
+font-weight-semibold
+600
+font-weight-bold
+700
+line-height-tight
+1.25 — headings
+line-height-normal
+1.5 — body
+line-height-relaxed
+1.75 — multiline cards
+
+4.2 Color Palette
+Brand Colors
+Token
+Hex / Usage
+color-brand-500 (primary)
+#2B6CB0 — primary actions, active states, links
+color-brand-100 (light)
+#EBF4FF — hover backgrounds, selected states
+color-brand-800 (dark)
+#1A365D — pressed states, dark text on light brand backgrounds
+color-accent-500
+#E53E3E — destructive actions, error states, ACTION_ITEM badge
+color-success-500
+#276749 — success states, connected indicators, DECISION badge
+color-warning-500
+#C05621 — warnings, OPEN_QUESTION badge
+color-gray-400
+#A0AEC0 — REFERENCE badge, disabled states
+color-gray-100
+#F7FAFC — panel backgrounds
+color-gray-700
+#4A5568 — secondary text
+color-dark
+#1A202C — primary text, headings
+
+Canvas Background
+Element
+Specification
+Canvas background
+#FFFFFF (white)
+Grid dot color
+#CBD5E0 — 1px dots, 20px spacing, scales with zoom
+Selection rectangle
+#2B6CB0 at 20% opacity fill, 1.5px dashed blue stroke
+Drop zone highlight
+#EBF4FF fill, 2px dashed #2B6CB0 border
+
+AI Intent Tag Colors
+Intent Tag
+Background
+Text Color
+ACTION_ITEM
+#FED7D7 (red-100)
+#742A2A (red-900)
+DECISION
+#BEE3F8 (blue-100)
+#2A4365 (blue-900)
+OPEN_QUESTION
+#FEEBC8 (orange-100)
+#7B341E (orange-900)
+REFERENCE
+#EDF2F7 (gray-100)
+#2D3748 (gray-800)
+UNCLASSIFIED
+#F7FAFC (gray-50)
+#A0AEC0 (gray-400)
+Analyzing...
+#B2F5EA (teal-100) pulsing
+#234E52 (teal-900)
+
+User Cursor Color Palette
+10 distinct colors assigned round-robin to users on join:
+#E53E3E (Red), #DD6B20 (Orange), #D69E2E (Yellow), #38A169 (Green), #2B6CB0 (Blue)
+#553C9A (Purple), #B83280 (Pink), #00B5D8 (Cyan), #2C7A7B (Teal), #744210 (Brown)
+
+4.3 Spacing System
+Token
+Value
+space-1
+4px
+space-2
+8px
+space-3
+12px
+space-4
+16px
+space-5
+20px
+space-6
+24px
+space-8
+32px
+space-10
+40px
+space-12
+48px
+space-16
+64px
+
+4.4 Shadow &amp; Elevation
+Level
+CSS Value / Usage
+elevation-1 (surface)
+0px 1px 3px rgba(0,0,0,0.08) — panels, default cards
+elevation-2 (raised)
+0px 2px 8px rgba(0,0,0,0.10) — sticky notes, floating toolbar
+elevation-3 (floating)
+0px 4px 16px rgba(0,0,0,0.15) — modals, dragged nodes, tooltips
+elevation-4 (overlay)
+0px 8px 32px rgba(0,0,0,0.20) — context menus, dropdowns
+
+4.5 Border Radius
+Token
+Value / Usage
+radius-sm
+4px — input fields, small buttons
+radius-md
+8px — sticky notes, cards, panels
+radius-lg
+12px — modals
+radius-pill
+9999px — badge pills, toolbar buttons, avatar chips
+
+4.6 Interactive Components
+Buttons
+Variant
+Background
+Text
+Usage
+Primary
+#2B6CB0
+White
+Main CTAs: Create Room, Export, Apply
+Secondary
+White + 1px #2B6CB0 border
+#2B6CB0
+Cancel, secondary actions
+Danger
+#E53E3E
+White
+Delete, remove — requires confirmation
+Ghost
+Transparent
+#4A5568
+Toolbar icons, icon-only buttons
+Disabled (all)
+30% opacity
+Same
+When action is unavailable
+
+Input Fields
+Height: 40px (standard), 48px (large)
+Border: 1px solid #D0D7DE
+Focus: 2px solid #2B6CB0 border, no outline, light blue background (#F0F7FF)
+Error: 2px solid #E53E3E border, error message below in #E53E3E
+Disabled: 60% opacity, background #F7FAFC
+Placeholder text: #A0AEC0
+
+Tooltips
+Background: #1A202C (near-black), white text, 12px font
+Border-radius: 4px, 6px padding horizontal, 4px vertical
+Arrow: 6px triangle pointing to trigger element
+Delay: 600ms appear, 0ms dismiss
+Max-width: 240px, wraps to two lines
+
+Toast Notifications
+Position: bottom-center of viewport, 16px from bottom edge
+Width: 320px fixed
+Types: Info (blue), Success (green), Warning (yellow), Error (red)
+Auto-dismiss: 4 seconds for info/success; 8 seconds for warning; manual dismiss for error
+Animation: slides up from bottom (200ms ease-out), fades out (150ms ease-in)
+Max 3 toasts visible simultaneously; overflow queues
+
+5. User Flows
+5.1 Flow 1 — Create and Join a Room
+User navigates to /login
+User enters display name and selects role (Lead)
+User clicks &apos;Create New Room&apos;
+System generates unique roomId, redirects to /room/:roomId
+Canvas workspace loads; empty canvas shown; user sees their own cursor
+User copies URL from browser address bar
+Second user navigates to URL, enters display name, selects role (Contributor)
+Second user joins; Lead sees second user&apos;s cursor appear with name label
+Second user sees existing canvas state (empty initially) and first user&apos;s cursor
+
+5.2 Flow 2 — Collaborative Brainstorm with AI Task Extraction
+Contributor double-clicks canvas → sticky note created at cursor position
+Contributor types &apos;Assign to Alex: Implement auth flow by Friday&apos;
+After 1.5s debounce: client sends text to AI classifier via API
+All users see &apos;Analyzing...&apos; pulsing badge on the sticky note
+AI responds: ACTION_ITEM — badge updates to red &apos;ACTION ITEM&apos; badge on all screens
+Task Board panel (if open) shows new entry: task text, author, timestamp, canvas link
+Lead clicks Task Board entry → canvas pans and zooms to center the sticky note
+Lead right-clicks sticky note → selects &apos;Lock to Lead&apos;
+Lock icon appears on sticky note for all users
+Contributor attempts to edit locked sticky note → tooltip &apos;This node is locked&apos; shown
+
+5.3 Flow 3 — Reconnection after Drop
+User&apos;s network drops → client detects missing pong within 10 seconds
+Connection status changes to &apos;Reconnecting (1/5)...&apos; (yellow indicator)
+Other users&apos; cursors stop moving; disconnected user&apos;s cursor fades out for others
+Client attempts reconnect with exponential backoff
+On successful reconnect: client sends { type: &apos;RECONNECT&apos;, lastSequenceNumber: 47 }
+Server responds with REPLAY_EVENTS message containing events 48 through current
+Client applies replayed events; canvas updates to current state
+Connection status returns to green &apos;Connected&apos;
+Reconnected user&apos;s cursor reappears for all other users
+
+6. Interaction Specifications
+6.1 Canvas Interactions
+Interaction
+Trigger
+Response
+Pan canvas
+Spacebar + drag; middle-mouse drag; two-finger trackpad scroll
+Canvas translate transform updates; grid pattern moves with canvas
+Zoom
+Ctrl+scroll or pinch; toolbar +/- buttons
+Canvas scale transform updates centered on cursor/viewport center; zoom level shown in toolbar (e.g. &apos;75%&apos;)
+Create sticky note
+Double-click on canvas background (Select tool active)
+New sticky note node created at click position; immediately enters text edit mode with cursor
+Select node
+Single click on node
+Node selected; bounding box + handles shown; properties appear in toolbar or context bar
+Multi-select
+Shift+click additional nodes; or drag selection rectangle on canvas background
+Group bounding box shown; move/delete applies to all
+Move node
+Drag selected node
+Node follows cursor; position delta broadcast as CANVAS_DELTA event; other users see node move in real time
+Resize node
+Drag resize handle
+Node dimensions update; minimum size enforced; delta broadcast
+Edit text
+Double-click on sticky note or text block
+Text cursor placed; node enters edit mode; typing is local until commit
+Commit text edit
+Click outside node; press Escape; or 2s of no typing
+Text content broadcast as CANVAS_DELTA with full new text value; AI classification triggered
+Delete node(s)
+Delete or Backspace key with selection
+If unlocked: confirmation for locked nodes only; NODE_DELETED event generated; Task Board entry marked &apos;Removed&apos;
+Undo
+Ctrl+Z / Cmd+Z
+Last local operation reversed (position, text, creation); undo generates a reverse event; does NOT undo other users&apos; changes
+
+6.2 Micro-Interactions &amp; Animation Specifications
+Interaction
+Animation
+Duration / Easing
+Node creation
+Scale from 0.8 to 1.0 with fade-in from opacity 0
+200ms, ease-out
+Node deletion
+Scale to 0.8 + fade to opacity 0
+150ms, ease-in
+Panel slide in/out
+Transform: translateX(0) from translateX(100%) or (-100%)
+250ms, cubic-bezier(0.4, 0, 0.2, 1)
+Cursor movement (remote)
+Lerp position interpolation
+60fps, 50ms update interval
+Task Board entry appear
+Slide down from above + fade in
+300ms, ease-out
+AI badge transition
+Cross-fade between &apos;Analyzing...&apos; and final badge
+200ms, ease
+Canvas pan-to-node (Task Board click)
+Viewport translate + scale animation
+400ms, cubic-bezier(0.4, 0, 0.2, 1)
+Lock icon appear
+Scale from 0 to 1 with bounce
+300ms, spring easing
+Toast appear
+Slide up from bottom + fade in
+200ms, ease-out
+Toast dismiss
+Fade out
+150ms, ease-in
+Reconnection status change
+Color transition + dot animation
+300ms
+Hover state
+Background color transition
+100ms, linear
+Button press
+Scale to 0.97
+80ms, ease
+
+7. Responsive Behavior
+7.1 Breakpoints
+Breakpoint
+Width / Behavior
+Desktop (primary)
+≥ 1280px — full layout, all panels available side-by-side
+Laptop
+1024px–1279px — panels slightly narrower (Task Board: 280px, Event Log: 240px)
+Tablet
+768px–1023px — panels become bottom sheets instead of side panels; toolbar icons only (no labels)
+Mobile (&lt;768px)
+Out of primary scope — canvas tools collapse to essential 4: select, note, draw, erase; side panels become full-screen overlays
+
+7.2 Panel Behavior at Different Widths
+At ≥ 1440px: Both Task Board and Event Log can be open simultaneously
+At 1024px–1439px: Only one panel can be open at a time (opening one closes the other)
+At &lt;1024px: Panels open as full-height sheets covering the canvas; a close button (×) is prominent
+
+8. Accessibility Specifications
+8.1 Non-Canvas Elements (WCAG 2.1 AA)
+All interactive elements reachable via keyboard (Tab order is logical, follows visual layout)
+Focus indicators: 2px blue outline (#2B6CB0) on all focusable elements
+ARIA roles: role=&apos;toolbar&apos; on tool strip; role=&apos;log&apos; on Event Log panel (live region); role=&apos;list&apos; on Task Board; role=&apos;listitem&apos; on each task card
+ARIA labels: aria-label on all icon-only buttons (e.g., aria-label=&apos;Add sticky note (N)&apos;)
+Screen reader announcements: New task additions to Task Board announced via aria-live=&apos;polite&apos;
+Connection status changes announced via aria-live=&apos;assertive&apos;
+
+8.2 Color &amp; Contrast
+All text elements: minimum 4.5:1 contrast ratio
+AI tag badges: checked against backgrounds for contrast ≥ 4.5:1
+Role indicators and lock icons: not solely color-dependent — include icon + text label
+User cursor colors: colorblind-safe palette verified with simulation tools
+
+8.3 Canvas Accessibility
+[NOTE] The canvas drawing surface (HTML5 Canvas/SVG) has inherent accessibility limitations. The following mitigations apply:
+Canvas nodes are mirrored in an off-screen ARIA tree for screen reader access
+Keyboard users can Tab through canvas nodes when Select tool is active (Tab cycles through nodes by creation order)
+Selected node details announced: &apos;Sticky note selected. Text: [content]. Author: [name]. Intent: ACTION_ITEM. Locked: No.&apos;
+
+9. UX Rationale &amp; Design Decisions
+Decision
+Rationale
+Alternative Considered
+Floating pill toolbar (not edge toolbar)
+Keeps canvas corners and edges free for content; pill is easily discoverable without consuming layout space
+Left-edge icon rail — rejected because it competes with Event Log panel
+AI badge on node (not separate list)
+Intent is contextual — seeing the badge directly on the content it classifies eliminates context switching
+Separate &apos;Tags&apos; panel — rejected as it violates spatial clarity principle
+Task Board on right (not bottom)
+Vertical scroll of tasks is natural; bottom panels reduce canvas height which harms spatial thinking
+Bottom panel — rejected for usability reasons
+Append-only event log (not editable history)
+Builds user trust and supports time-travel replay; aligns with event-sourcing architecture
+Mutable logs — rejected per BR-04 and architectural integrity
+Lock icon bottom-left of node
+Bottom-left is rarely used for content; top-right is occupied by AI badge; lock needs to be visible but not distracting
+Top-left — rejected as it interferes with text editing handles
+Cursor label pill (not tooltip)
+Tooltip implies hover interaction; cursor labels are persistent presence indicators that need to be always visible without hover
+Hover tooltip — rejected because presence must be ambient, not on-demand
+Sticky note auto-resize vertically
+Notes should never truncate content; truncation loses ideas
+Fixed size with scroll — rejected as scroll on sticky note is unintuitive
+
+End of UI/UX Design Specification
+LIGMA UI/UX Spec v1.0 | DevDay &apos;26 Hackathon

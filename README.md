@@ -1,6 +1,64 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+This is a Next.js frontend with a separate Node.js backend (Express + SQLite) for LIGMA Phase 1.
 
 ## Getting Started
+
+### Project Structure
+
+- `app/` Next.js UI (currently starter shell)
+- `server/` Express + SQLite backend (Phase 1 scope)
+- `shared/` Shared types and protocol shapes for REST/WS
+
+### Backend (Phase 1)
+
+The backend implements the Phase 1 foundation only:
+
+- Auth join flow (JWT issued on join)
+- Room creation + lookup
+- SQLite schema and append-only event store foundation
+- REST endpoints for room state
+
+#### Environment Variables
+
+Create a `.env` file (or set env vars) for the server:
+
+```
+JWT_SECRET=replace_with_32_plus_char_secret
+DATABASE_URL=./data/ligma.db
+PORT=4000
+CLIENT_ORIGIN=http://localhost:3000
+```
+
+#### Run the Backend
+
+```
+npm install
+npm run server:dev
+```
+
+Server starts on `http://localhost:4000`.
+
+#### REST Endpoints (Phase 1)
+
+- `POST /api/auth/join`
+	- Body: `{ "displayName": "Name", "roomId": "uuid?", "role": "LEAD|CONTRIBUTOR|VIEWER" }`
+	- Response: `{ userId, displayName, role, token, color, roomId }`
+- `POST /api/rooms`
+	- Auth: `Authorization: Bearer <token>`
+	- Body: `{ "name": "optional" }`
+	- Response: `{ roomId, shareUrl }`
+- `GET /api/rooms/:roomId`
+	- Auth: `Authorization: Bearer <token>`
+	- Response: Room metadata
+- `GET /api/rooms/:roomId/state`
+	- Auth: `Authorization: Bearer <token>`
+	- Response: `{ roomId, nodes, sequenceNumber, members }`
+
+#### How It Works (Phase 1)
+
+- `POST /api/auth/join` creates a user and a room membership, assigns a cursor color, and issues a 1-hour JWT.
+- If `roomId` is omitted, a new room is created and the joining user is assigned `LEAD`.
+- Room state is read from the materialized `canvas_nodes` table and membership data from `room_members`.
+- Events are append-only in the `events` table; sequence numbers are auto-incremented by SQLite.
 
 First, run the development server:
 
