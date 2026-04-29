@@ -1,7 +1,7 @@
-import type { Router } from "express";
+import { Router } from "express";
 import { z } from "zod";
-import type { AuthJoinResponse } from "../../../shared/protocol";
-import type { Role } from "../../../shared/types";
+import type { AuthJoinResponse } from "../../../../shared/protocol";
+import type { Role } from "../../../../shared/types";
 import { AuthService } from "../../services/AuthService";
 import { RoomService } from "../../services/RoomService";
 
@@ -16,7 +16,7 @@ export function createAuthRouter(params: {
   roomService: RoomService;
 }): Router {
   const { authService, roomService } = params;
-  const router = require("express").Router();
+  const router = Router();
 
   router.post("/join", (req, res) => {
     const parsed = joinSchema.safeParse(req.body);
@@ -31,18 +31,25 @@ export function createAuthRouter(params: {
       if (!room) {
         return res.status(404).json({ error: "Room not found" });
       }
-      const assignedRole: Role = role ?? "CONTRIBUTOR";
-      const response: AuthJoinResponse = authService.joinRoom({
-        displayName,
+
+      const identity = authService.createUser(displayName);
+      const assignedRole: Role = role === "VIEWER" ? "VIEWER" : "CONTRIBUTOR";
+      const response: AuthJoinResponse = authService.addUserToRoom({
+        userId: identity.userId,
+        displayName: identity.displayName,
+        color: identity.color,
         roomId,
         role: assignedRole,
       });
       return res.json(response);
     }
 
-    const createdRoom = roomService.createRoom({ createdBy: "system" });
-    const response: AuthJoinResponse = authService.joinRoom({
-      displayName,
+    const identity = authService.createUser(displayName);
+    const createdRoom = roomService.createRoom({ createdBy: identity.userId });
+    const response: AuthJoinResponse = authService.addUserToRoom({
+      userId: identity.userId,
+      displayName: identity.displayName,
+      color: identity.color,
       roomId: createdRoom.roomId,
       role: "LEAD",
     });

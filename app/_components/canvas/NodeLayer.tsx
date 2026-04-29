@@ -22,15 +22,17 @@ export default function NodeLayer({ onStartDrag, onStartResize }: NodeLayerProps
   const selectedNodeId = useUiStore((state) => state.selectedNodeId);
 
   const ordered = useMemo(() => {
-    return Object.values(nodes).sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
+    return Object.values(nodes).sort(
+      (a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0)
+    );
   }, [nodes]);
 
   return (
     <>
       {ordered.map((node) => {
         const selected = node.nodeId === selectedNodeId;
+
         const commonProps = {
-          key: node.nodeId,
           node,
           selected,
           onStartDrag,
@@ -38,18 +40,40 @@ export default function NodeLayer({ onStartDrag, onStartResize }: NodeLayerProps
         };
 
         if (node.nodeType === "sticky") {
-          return <StickyNote {...commonProps} />;
+          return (
+            <StickyNote
+              key={node.nodeId}
+              {...commonProps}
+            />
+          );
         }
 
         if (node.nodeType === "text") {
-          return <TextNode {...commonProps} />;
+          return (
+            <TextNode
+              key={node.nodeId}
+              {...commonProps}
+            />
+          );
         }
 
         if (node.nodeType === "rect" || node.nodeType === "circle") {
-          return <ShapeNode shapeType={node.nodeType} {...commonProps} />;
+          return (
+            <ShapeNode
+              key={node.nodeId}
+              shapeType={node.nodeType}
+              {...commonProps}
+            />
+          );
         }
 
-        return <ShapeNode shapeType="rect" {...commonProps} />;
+        return (
+          <ShapeNode
+            key={node.nodeId}
+            shapeType="rect"
+            {...commonProps}
+          />
+        );
       })}
     </>
   );
@@ -58,7 +82,11 @@ export default function NodeLayer({ onStartDrag, onStartResize }: NodeLayerProps
 export interface NodeComponentProps {
   node: CanvasNode;
   selected: boolean;
-  onStartDrag: (nodeId: string, offset: { x: number; y: number }) => void;
+  onStartDrag: (
+    nodeId: string,
+    offset: { x: number; y: number }
+  ) => void;
+
   onStartResize: (
     nodeId: string,
     start: { x: number; y: number },

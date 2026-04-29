@@ -22,6 +22,61 @@ export class RbacService {
     return row?.role ?? null;
   }
 
+  updateMemberRole(roomId: UUID, userId: UUID, role: Role): void {
+    this.db
+      .prepare("UPDATE room_members SET role = ? WHERE room_id = ? AND user_id = ?")
+      .run(role, roomId, userId);
+  }
+
+  countMembersWithRole(roomId: UUID, role: Role): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) as count FROM room_members WHERE room_id = ? AND role = ?")
+      .get(roomId, role) as { count: number };
+    return row.count;
+  }
+
+  canChangeMemberRole(params: {
+    roomId: UUID;
+    actorUserId: UUID;
+    targetUserId: UUID;
+    nextRole: Role;
+  }): RbacDecision {
+    const actorRole = this.getMemberRole(params.roomId, params.actorUserId);
+    if (actorRole !== "LEAD") {
+      return { allowed: false, code: "RBAC_DENIED", message: "Lead role required" };
+    }
+
+    const currentRole = this.getMemberRole(params.roomId, params.targetUserId);
+    if (!currentRole) {
+      return { allowed: false, code: "MEMBER_NOT_FOUND", message: "Member not found" };
+    }
+
+    if (currentRole === params.nextRole) {
+      return { allowed: true };
+    }
+
+    if (currentRole === "VIEWER" && params.nextRole === "LEAD") {
+      return {
+        allowed: false,
+        code: "RBAC_DENIED",
+        message: "Viewer cannot be promoted directly to Lead",
+      };
+    }
+
+    if (currentRole === "LEAD" && params.nextRole !== "LEAD") {
+      const leadCount = this.countMembersWithRole(params.roomId, "LEAD");
+      if (leadCount <= 1) {
+        return {
+          allowed: false,
+          code: "RBAC_DENIED",
+          message: "At least one Lead must remain in the room",
+        };
+      }
+    }
+
+    return { allowed: true };
+  }
+
   getNodeMeta(roomId: UUID, nodeId: UUID): {
     locked: boolean;
     lockedBy: UUID | null;

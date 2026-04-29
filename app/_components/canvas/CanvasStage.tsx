@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import type { CSSProperties, PointerEvent, WheelEvent } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent, WheelEvent } from "react";
 import { useCanvasStore } from "@/app/_stores/canvasStore";
 import { useUiStore } from "@/app/_stores/uiStore";
 import { useSessionStore } from "@/app/_stores/sessionStore";
@@ -75,6 +75,7 @@ export default function CanvasStage() {
 
   useEffect(() => {
     const handleMove = (event: PointerEvent) => {
+      // Note: this is the DOM PointerEvent (window listener), not React's.
       if (panRef.current?.active) {
         const dx = event.clientX - panRef.current.startX;
         const dy = event.clientY - panRef.current.startY;
@@ -190,7 +191,7 @@ export default function CanvasStage() {
     setViewport({ scale: nextScale, x: nextX, y: nextY });
   };
 
-  const handleStagePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+  const handleStagePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button === 1 || isSpaceDown) {
       panRef.current = {
         active: true,
@@ -315,7 +316,7 @@ export default function CanvasStage() {
     }
   };
 
-  const handleStagePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+  const handleStagePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!session) return;
 
     const now = Date.now();

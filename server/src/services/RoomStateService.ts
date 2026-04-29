@@ -1,10 +1,10 @@
-import type { CanvasNode, UUID } from "../../../shared/types";
+import type { CanvasNode, Role, UUID } from "../../../shared/types";
 import type { Db } from "../db";
 
 export interface RoomMemberSummary {
   userId: UUID;
   displayName: string;
-  role: string;
+  role: Role;
   color: string;
 }
 
@@ -57,7 +57,7 @@ export class RoomStateService {
     return stmt.all(roomId).map((row: any) => ({
       userId: row.user_id,
       displayName: row.display_name,
-      role: row.role,
+      role: row.role as Role,
       color: row.cursor_color,
     }));
   }

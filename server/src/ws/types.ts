@@ -11,4 +11,5 @@ export interface ClientConnection {
   lastSequenceNumber: number;
   lastSeenAt: number;
   lastPongAt: number;
+  connectedAt: number;
 }

@@ -41,4 +41,8 @@ export class RoomRegistry {
   getRoomIds(): UUID[] {
     return Array.from(this.rooms.keys());
   }
+
+  getConnectionCount(): number {
+    return this.sockets.size;
+  }
 }

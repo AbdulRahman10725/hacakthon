@@ -1,0 +1,300 @@
+1
+   WEB DEVELOPMENT HACKATHON —
+        PROBLEM STATEMENT
+                 LIGMA - Let’s Integrate Groups, Manage Anything
+                         Virtual Collaboration Workspace
+
+
+
+Note to Participants
+You are completely free to use any AI tool for support. Although, the evaluation (excluding
+frontend) will be based on your design knowledge and the architectural design decisions.
+USE OF PAID 3RD PARTY INTEGRATIONS WILL RESULT IN IMMEDIATE
+DISQUALIFICATION.
+
+
+01 Background
+Modern remote teams operate across fragmented toolchains — a whiteboard for ideation,
+a task manager for execution, a chat tool for decisions. The cognitive cost of context-
+switching during a live brainstorm kills momentum: a great idea scribbled on a sticky note
+becomes a lost action item because nobody transferred it to the project tracker.
+Existing tools either solve the canvas problem (Figma, Miro) or the task management
+problem (Notion, Linear) — but none bridge the gap in real time, at the moment the idea
+is born.
+
+
+02 The Challenge
+Build LIGMA — a real-time collaborative workspace that bridges ideation and execution.
+Teams brainstorm on a shared infinite canvas; the platform automatically extracts intent
+from canvas content and populates a live task board — no copy-paste, no context
+switching.
+LIGMA is intentionally scoped: it is not a full Figma clone. It is a purpose-built
+brainstorming tool that produces structured, actionable output the moment a session
+ends.
+
+
+
+
+                                            2
+03 Core Requirements
+The Canvas
+  •   Infinite canvas with sticky notes, freehand drawing, shapes, and text blocks.
+  •   Multiple users can edit simultaneously in real time (no page refresh).
+  •   Each canvas element (node) is an independently addressable object.
+  •   Cursor presence — each user's cursor is visible to all participants.
+Intent-Aware Task Extraction
+  •   As users write on canvas nodes, an AI layer classifies intent: action item, decision,
+      open question, or reference.
+  •   Nodes tagged as action items automatically appear in a structured Task Board
+      panel.
+  •   Tasks carry the original author, timestamp, and a link back to the canvas node —
+      no data is duplicated.
+Node-Level Access Control
+  •   Individual canvas nodes can be locked to specific roles (e.g., Lead, Contributor,
+      Viewer).
+  •   A "Lead" can lock the architecture diagram while contributors can still comment on
+      it.
+Append-Only Event Log
+  •   Every mutation to the canvas is stored as an immutable event. The logs can be
+      viewed in a bar on the side.
+Real-Time WebSocket Management
+  •   The system must handle multiple concurrent WebSocket connections, broadcast
+      canvas deltas (not full state) efficiently, and recover gracefully when a client
+      reconnects after a drop — replaying only missed events.
+Deployment of the module on Render
+  •   In order to be judged it's important to deploy the finished project onto Render.
+
+
+
+
+                                            3
+04 Technical Challenges
+The following challenges go beyond standard CRUD. Teams must demonstrate
+understanding of the underlying problem, not just a working UI.
+   1. Challenge 01: Conflict Resolution (CRDT / OT)
+      When two users simultaneously edit the same canvas node, implement proper
+      merge logic — not "last write wins." The canvas must converge to a consistent,
+      correct state across all connected clients. This is what Figma and Google Docs
+      actually do under the hood.
+   2. Challenge 02: Node-Level RBAC
+      Most apps enforce permissions at the room level. LIGMA requires per-node
+      permissions. Individual canvas elements must carry their own ACL, enforced both
+      client-side (UI affordances) and server-side (mutation validation).
+   3. Challenge 03: Intent-Aware Task Extraction
+      As users write on canvas nodes, an AI layer classifies intent: action item, decision,
+      open question, or reference.
+   4. Challenge 04: Append-Only Event Log
+      Append-Only Event Log Every mutation to the canvas is stored as an immutable
+      event. The logs can be viewed in a bar on the side.
+   5. Challenge 05: Real-Time WebSocket Management
+      Real-Time WebSocket Management The system must handle multiple concurrent
+      WebSocket connections, broadcast canvas deltas (not full state) efficiently, and
+      recover gracefully when a client reconnects after a drop — replaying only missed
+      events.
+   6. Challenge 06: Deployment of the module on Render
+      Deployment of the module on Render In order to be judged it's important to deploy
+      the finished project onto Render.
+
+
+05 Creative Features (Bonus)
+These features are optional but reward teams that plan their architecture well in Stage 1:
+   •  Presence Heatmap: Visual overlay showing which canvas zones received the
+      most edits and attention during the session.
+   • Time-Travel Replay: Scrub through session history like a video timeline —
+      watch the brainstorm unfold step by step.
+   • AI Summary Export: One-click export of the canvas content into a structured
+      brief: decisions made, tasks assigned, open questions.
+   • Presence Zones: Named focus areas on the canvas that display which team
+      members are currently active in each zone.
+Note to participants: You are not expected to build all four creative features. One well-
+implemented bonus feature with a clear architecture is worth more than four half-finished
+ones.
+
+
+                                            4
+06 Evaluation Rubric
+Point Distribution Overview
+
+              Real-Time        Core                         UI /
+Category                                   Architecture             Innovation   TOTAL
+               Collab        Features                       UX
+
+
+Max Pts          25             25              20          15         15          100
+
+
+Detailed Scoring Criteria
+
+ Criterion      Pts            ✅ Full Marks                        ❌ Zero Marks
+
+
+                                 CATEGORY 1
+              Real-Time Collaboration & Conflict Resolution // 25 pts
+
+
+                         Open two browser tabs with
+                       different user sessions. Draw a      Changes in Tab A are only
+ Multi-user
+                10     shape in Tab A — it appears in     visible in Tab B after a manual
+canvas sync
+                          Tab B within a reasonable       reload, or never appear at all.
+                                    period.
+
+
+                         Both users type in the same
+                                                            One user's text silently
+                       text node simultaneously. Both
+  Conflict                                                 overwrites the other's, or
+                10       tabs show identical merged
+ resolution                                               README has no explanation
+                           text. README explains
+                                                             of conflict handling.
+                                   strategy.
+
+
+                       Each connected user's cursor          No cursor presence, or
+  Cursor
+                 5     is visible on all other screens,     cursors delay more than 2
+ presence
+                        labelled, updating smoothly.                seconds.
+
+
+
+
+                                           5
+                               CATEGORY 2
+                    Core Feature Implementation // 25 pts
+
+
+                          Type an action item. Within 3       Task creation requires
+   AI intent              seconds, Task Board shows            manual click, no task
+                   10
+  extraction              new task with author and link       appears, or Task Board
+                                 automatically.                  panel is absent.
+
+
+                                                                Task Board requires
+                          Task Board is live for all users.
+  Task Board                                                    reload to update, or
+                    8     Clicking a task scrolls canvas
+  integration                                                 tasks have no link back
+                              to the originating node.
+                                                                to the canvas node.
+
+
+                         Viewer edit is blocked in UI and      RBAC enforced only in
+  Node-level              on server (WebSocket error).         UI (WebSocket bypass
+                    7
+    RBAC                 Live role demotion takes effect      possible), or permissions
+                                  without reload.                  require reload.
+
+
+                                CATEGORY 3
+                Technical Architecture & Code Quality // 20 pts
+
+
+                                                              Mutations overwrite state
+                          Mutations stored as immutable
+                                                               in place. No event log.
+Event-sourced               events with timestamp/ID.
+                    8                                              State cannot be
+    arch                    Deleting a node inserts an
+                                                                 reconstructed from
+                          event; doesn't remove history.
+                                                                       history.
+
+
+                              REST/GraphQL returns
+                                                                Logic in a single file,
+                           structured JSON. Codebase
+ API design &                                                 inconsistent structures,
+                    7         has clear separation of
+   quality                                                    or endpoints fail outside
+                            concerns (routes, services,
+                                                                   the browser.
+                                       data).
+
+
+                              Contains architecture
+                                                               No README, or it is a
+                             diagram/description and
+                                                              default scaffold template
+README & docs       5        explanation of technical
+                                                               with no project-specific
+                             choices (CRDT, Event-
+                                                                       content.
+                                   sourcing).
+
+
+
+                                         6
+                               CATEGORY 4
+                               UI / UX // 15 pts
+
+
+                           User can add/move sticky         Core interactions require
+                           notes, connect nodes, and        explanation; controls are
+Canvas usability   8
+                              assign tags without           hidden behind unlabelled
+                                  explanation.                       icons.
+
+
+                          Canvas and Task Board are         Layout breaks, overlaps,
+                             functional/readable. No         or key controls are cut
+Responsiveness     4
+                         horizontal scrollbar on the main    off and unreachable at
+                                      layout.                    standard widths.
+
+
+                                                             Conflicting font sizes,
+                                                              mismatched button
+    Visual                   Consistent palette, font
+                   3                                          styles, or unstyled
+  consistency                hierarchy, and spacing.
+                                                               default browser
+                                                                   elements.
+
+
+                                CATEGORY 5
+                       Innovation & Creativity // 15 pts
+
+
+                                                             Feature shown only as
+                           One creative feature is fully
+                                                              static screenshot, a
+ Bonus feature     8     functional and demoed live (not
+                                                               disabled button, or
+                                just a UI mockup).
+                                                             crashes during demo.
+
+
+                                                              Team cannot explain
+                          Team articulates non-obvious         technical choices;
+   Approach
+                   7       architectural decisions with      codebase is a scaffold
+  uniqueness
+                         clear reasoning during Stage 1.     with no unique design
+                                                                   decisions.
+
+
+
+
+                                        7
+07 Judging Notes
+ •   Partial credit is independent per criterion. If conflict resolution works but the
+     README has no explanation, judges award the WebSocket points but dock the
+     evolution rationale points separately.
+ •   Server-side enforcement is mandatory for security criteria. Client-only guards
+     earn zero on RBAC — judges will test by sending a raw WebSocket or curl
+     request.
+ •   Live demo is required. Screenshots and videos do not substitute for a working
+     demo on any criterion marked with a curl / DevTools / tab-switching test action.
+ •   Stage 1 (Architecture Presentation) scores feed into Category 5. Teams that
+     plan well and articulate their choices clearly earn the uniqueness points even if
+     their implementation is incomplete.
+
+
+
+
+                                          8
+

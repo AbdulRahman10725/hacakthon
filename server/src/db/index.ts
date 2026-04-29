@@ -12,8 +12,10 @@ export function createDb(databaseUrl?: string): Db {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
+
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
   return db;
 }
 

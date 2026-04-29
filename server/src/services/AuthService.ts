@@ -17,6 +17,12 @@ const CURSOR_COLORS = [
   "#744210",
 ];
 
+export interface AuthIdentity {
+  userId: UUID;
+  displayName: string;
+  color: string;
+}
+
 export class AuthService {
   private db: Db;
   private jwtSecret: string;
@@ -26,11 +32,7 @@ export class AuthService {
     this.jwtSecret = jwtSecret;
   }
 
-  joinRoom(params: {
-    displayName: string;
-    roomId: UUID;
-    role: Role;
-  }): AuthJoinResponse {
+  createUser(displayName: string): AuthIdentity {
     const userId = randomUUID();
     const color = this.assignColor();
     const now = new Date().toISOString();
@@ -40,34 +42,66 @@ export class AuthService {
        VALUES (?, ?, ?, ?)`
     );
 
+    insertUser.run(userId, displayName, color, now);
+
+    return {
+      userId,
+      displayName,
+      color,
+    };
+  }
+
+  addUserToRoom(params: {
+    userId: UUID;
+    displayName: string;
+    color: string;
+    roomId: UUID;
+    role: Role;
+  }): AuthJoinResponse {
+    const now = new Date().toISOString();
+
     const insertMember = this.db.prepare(
       `INSERT INTO room_members (room_id, user_id, role, joined_at)
        VALUES (?, ?, ?, ?)`
     );
 
-    insertUser.run(userId, params.displayName, color, now);
-    insertMember.run(params.roomId, userId, params.role, now);
+    insertMember.run(params.roomId, params.userId, params.role, now);
 
     const token = jwt.sign(
       {
-        userId,
+        userId: params.userId,
         roomId: params.roomId,
         role: params.role,
         displayName: params.displayName,
-        color,
+        color: params.color,
       },
       this.jwtSecret,
       { expiresIn: "1h" }
     );
 
     return {
-      userId,
+      userId: params.userId,
       displayName: params.displayName,
       role: params.role,
       token,
-      color,
+      color: params.color,
       roomId: params.roomId,
     };
+  }
+
+  joinRoom(params: {
+    displayName: string;
+    roomId: UUID;
+    role: Role;
+  }): AuthJoinResponse {
+    const identity = this.createUser(params.displayName);
+    return this.addUserToRoom({
+      userId: identity.userId,
+      displayName: identity.displayName,
+      color: identity.color,
+      roomId: params.roomId,
+      role: params.role,
+    });
   }
 
   private assignColor(): string {

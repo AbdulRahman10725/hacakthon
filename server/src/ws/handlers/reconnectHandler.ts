@@ -1,5 +1,4 @@
 import type { WsEnvelope } from "../../../../shared/protocol";
-import type { UUID } from "../../../../shared/types";
 import type { EventStore } from "../../services/EventStore";
 import type { RoomStateService } from "../../services/RoomStateService";
 import type { ClientConnection } from "../types";
@@ -15,11 +14,12 @@ export function handleReconnect(params: {
 
   if (lastSequenceNumber > 0) {
     const events = eventStore.getEventsSince(client.roomId, lastSequenceNumber);
+    const members = roomState.getRoomMembers(client.roomId);
     const envelope: WsEnvelope = {
       type: "REPLAY_EVENTS",
       roomId: client.roomId,
       timestamp: new Date().toISOString(),
-      payload: { events },
+      payload: { events, members },
     };
 
     send(client, envelope);

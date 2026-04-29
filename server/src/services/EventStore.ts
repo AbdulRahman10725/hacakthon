@@ -50,7 +50,7 @@ export class EventStore {
        FROM events WHERE room_id = ? AND sequence_number > ? ORDER BY sequence_number ASC`
     );
 
-    return stmt.all(roomId, sequenceNumber).map((row) => ({
+    return stmt.all(roomId, sequenceNumber).map((row: any) => ({
       sequenceNumber: row.sequence_number as number,
       eventId: row.event_id as UUID,
       roomId: row.room_id as UUID,

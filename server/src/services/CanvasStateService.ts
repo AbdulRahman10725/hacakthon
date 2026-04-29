@@ -38,9 +38,13 @@ export class CanvasStateService {
       const stmt = this.db.prepare(
         `INSERT OR IGNORE INTO canvas_nodes
           (node_id, room_id, node_type, x, y, width, height, text_content,
-           style, author_id, ai_tag, locked, locked_by, z_index, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           crdt_state, style, author_id, ai_tag, locked, locked_by, z_index, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
+
+      const crdtState = Array.isArray(payload.crdtUpdate)
+        ? Buffer.from(payload.crdtUpdate as number[])
+        : null;
 
       stmt.run(
         nodeId,
@@ -51,6 +55,7 @@ export class CanvasStateService {
         width,
         height,
         textContent,
+        crdtState,
         style,
         userId,
         payload.aiTag ?? null,
@@ -90,7 +95,7 @@ export class CanvasStateService {
 
     if (deltaType === "NODE_TEXT_UPDATED") {
       const stmt = this.db.prepare(
-        "UPDATE canvas_nodes SET text_content = ?, crdt_state = ?, updated_at = ? WHERE room_id = ? AND node_id = ?"
+        "UPDATE canvas_nodes SET text_content = ?, crdt_state = ?, ai_tag = ?, updated_at = ? WHERE room_id = ? AND node_id = ?"
       );
       const crdtState = Array.isArray(payload.crdtUpdate)
         ? Buffer.from(payload.crdtUpdate as number[])
@@ -98,6 +103,7 @@ export class CanvasStateService {
       stmt.run(
         payload.textContent ?? payload.text ?? null,
         crdtState,
+        payload.aiTag ?? null,
         now,
         roomId,
         payload.nodeId
@@ -107,10 +113,10 @@ export class CanvasStateService {
 
     if (deltaType === "NODE_STYLE_CHANGED") {
       const stmt = this.db.prepare(
-        "UPDATE canvas_nodes SET style = ?, updated_at = ? WHERE room_id = ? AND node_id = ?"
+        "UPDATE canvas_nodes SET style = ?, ai_tag = COALESCE(?, ai_tag), updated_at = ? WHERE room_id = ? AND node_id = ?"
       );
-      const style = payload.changes ? JSON.stringify(payload.changes) : null;
-      stmt.run(style, now, roomId, payload.nodeId);
+      const style = payload.changes ? JSON.stringify(payload.changes) : payload.style ? JSON.stringify(payload.style) : null;
+      stmt.run(style, payload.aiTag ?? null, now, roomId, payload.nodeId);
       return;
     }
 

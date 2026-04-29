@@ -8,12 +8,17 @@ export function handleCursorMove(params: {
   sendToRoom: (roomId: UUID, message: WsEnvelope, exclude?: ClientConnection) => void;
 }): void {
   const { client, payload, sendToRoom } = params;
+
   const envelope: WsEnvelope = {
     type: "CURSOR_MOVE",
     roomId: client.roomId,
     userId: client.userId,
     timestamp: new Date().toISOString(),
-    payload,
+    payload: {
+      ...payload,
+      displayName: client.displayName,
+      color: client.color,
+    },
   };
 
   sendToRoom(client.roomId, envelope, client);
